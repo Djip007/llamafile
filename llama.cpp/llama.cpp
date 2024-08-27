@@ -19,6 +19,8 @@
 #include "ggml-cuda.h"
 #include "ggml-metal.h"
 
+#include "ggml-bf16.h" // [jpp] new backend
+
 #include "llamafile/threadlocal.h"
 #include "llamafile/core_manager.h"
 
@@ -2422,6 +2424,7 @@ struct llama_context {
 #ifdef GGML_USE_BLAS
     ggml_backend_t backend_blas = nullptr;
 #endif
+    ggml_backend_t backend_bf16 = nullptr; // [jpp] new backend
     ggml_backend_t backend_cpu = nullptr;
 
     bool has_evaluated_once = false;
@@ -17016,6 +17019,12 @@ struct llama_context * llama_new_context_with_model(
             ctx->backends.push_back(ctx->backend_blas);
         }
 #endif
+        // [jpp]: new backend
+        ctx->backend_bf16 = ggml_backend_bf16_init();
+        if (ctx->backend_bf16 != nullptr) {
+            LLAMA_LOG_INFO("%s: bf16 backend enable.\n", __func__);
+            ctx->backends.push_back(ctx->backend_bf16);
+        }
 
 #if defined(GGML_USE_RPC)
         if (model->n_gpu_layers > 0) {
@@ -19448,6 +19457,7 @@ const char * llama_print_system_info(void) {
     s += "VSX = "         + std::to_string(ggml_cpu_has_vsx())         + " | ";
     s += "MATMUL_INT8 = " + std::to_string(ggml_cpu_has_matmul_int8()) + " | ";
     s += "LLAMAFILE = "   + std::to_string(ggml_cpu_has_llamafile())   + " | ";
+    s += "POC_BF16 = "    + std::to_string(ggml_cpu_has_bf16())        + " | "; // [jpp] new backend
 
     return s.c_str();
 }

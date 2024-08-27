@@ -314,6 +314,9 @@ static void print_usage(int /* argc */, char ** argv) {
 }
 
 static ggml_type ggml_type_from_name(const std::string & s) {
+    if (s == "bf16") {
+        return GGML_TYPE_BF16;
+    }
     if (s == "f16") {
         return GGML_TYPE_F16;
     }

@@ -21753,6 +21753,20 @@ int ggml_cpu_has_blas(void) {
 #endif
 }
 
+// [jpp]: new backend (voir comment le nomer, et detecter la possibilité de l'utiliser...)
+int ggml_cpu_has_bf16(void) {
+	// TODO gerer ca avec une option/variable d'env?
+    return 1;
+/*
+#if defined(GGML_USE_BF16)
+    //return ggml_cpu_has_avx512_bf16(); // + RDNA3 / ...
+    return 1;
+#else
+    return 0;
+#endif
+*/
+}
+
 int ggml_cpu_has_cuda(void) {
 #if defined(GGML_USE_CUDA)
     return 1;

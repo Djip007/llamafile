@@ -4,6 +4,7 @@
 PKGS += LLAMA_CPP
 
 LLAMA_CPP_FILES := $(wildcard llama.cpp/*.*)
+# compile pas sans ca... mais peut-etre supprimé une fois tout "inliné"
 LLAMA_CPP_HDRS = $(filter %.h,$(LLAMA_CPP_FILES))
 LLAMA_CPP_INCS = $(filter %.inc,$(LLAMA_CPP_FILES))
 LLAMA_CPP_SRCS_C = $(filter %.c,$(LLAMA_CPP_FILES))
@@ -82,6 +83,9 @@ o/$(MODE)/llama.cpp/ggml-vector-amd-avx512.o: private TARGET_ARCH += -Xx86_64-mt
 o/$(MODE)/llama.cpp/ggml-vector-amd-avx512vl.o: private TARGET_ARCH += -Xx86_64-mtune=cannonlake -Xx86_64-mavx -Xx86_64-mf16c -Xx86_64-mfma -Xx86_64-mavx2 -Xx86_64-mavx512f -Xx86_64-mavx512bw -Xx86_64-mavx512dq -Xx86_64-mavx512vl
 o/$(MODE)/llama.cpp/ggml-vector-amd-avx512bf16.o: private TARGET_ARCH += -Xx86_64-mtune=znver4 -Xx86_64-mavx -Xx86_64-mf16c -Xx86_64-mfma -Xx86_64-mavx2 -Xx86_64-mavx512f -Xx86_64-mavx512bw -Xx86_64-mavx512dq -Xx86_64-mavx512vl -Xx86_64-mavx512bf16
 o/$(MODE)/llama.cpp/ggml-vector-arm82.o: private TARGET_ARCH += -Xaarch64-march=armv8.2-a+fp16
+
+# faudra voir pour la partie hip...
+o/$(MODE)/llama.cpp/ggml-bf16.o: private TARGET_ARCH += -Xx86_64-mtune=znver4 -fopenmp -Xx86_64-mavx -Xx86_64-mf16c -Xx86_64-mfma -Xx86_64-mavx2 -Xx86_64-mavx512f -Xx86_64-mavx512bw -Xx86_64-mavx512dq -Xx86_64-mavx512vl -Xx86_64-mavx512bf16
 
 $(LLAMA_CPP_OBJS): llama.cpp/BUILD.mk
 
