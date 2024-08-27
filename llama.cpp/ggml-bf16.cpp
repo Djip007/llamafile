@@ -176,7 +176,7 @@ public:
 
     // execution du graph contenant les OPs "supported"
     inline enum ggml_status graph_compute(struct ggml_cgraph * cgraph) {
-        std::cout << "." ;
+        //std::cout << "." ;
         for (int i = 0; i < cgraph->n_nodes; i++) {
             struct ggml_tensor * node = cgraph->nodes[i];
 
@@ -211,9 +211,9 @@ public:
     inline bool supports_op(const struct ggml_tensor * op) {
         // dispach des OPs
         if (op->op == GGML_OP_MUL_MAT) {
-            std::cout << "TRACE> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
+            //std::cout << "TRACE> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
             if (mul_mat<false>(op)) return true;
-            //std::cout << "TODO> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
+            std::cout << "TODO> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
         //} else if (op->op == GGML_OP_OUT_PROD) {
         //    std::cout << " > " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name<<std::endl;
         }
@@ -237,8 +237,7 @@ private:
         const auto src1 = op->src[1];
         auto dst  = op;
 
-        // exemple:
-        // => control si les types sont supporté
+        // => les types/conditions supportés
         if( Matrice<bf16_t>::valid(src0) &&
             Matrice<fp32_t>::valid(src1) &&
             Matrice<fp32_t>::valid(op)   &&
@@ -323,6 +322,168 @@ GGML_CALL static bool ggml_backend_bf16_supports_buft(ggml_backend_t backend, gg
 //------------------------------------------------------------------------------------
 // => implemetation des OPs
 
+// jar les merges en 1 seul gros fichier...
+// start #include "ggml-bf16/matmul.cpp"
+// start #include "matmul_cpu.h"
+// cas K%32 = 0:
+static inline auto load(const fp32_t *X) {
+    auto x1 = _mm512_loadu_ps(X);
+    auto x2 = _mm512_loadu_ps(X+16);
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+static inline auto load(const bf16_t *X) {
+    return (__m512bh) _mm512_loadu_epi16(X);
+}
+
+static inline auto madd(const __m512bh& A, const __m512bh& B, const __m512& C) {
+    return _mm512_dpbf16_ps(C, A, B);
+}
+
+static inline float hsum(__m512 x) {
+    return _mm512_reduce_add_ps(x);
+}
+
+static inline void store(bf16_t *pX, const __m512bh& x) {
+    _mm512_storeu_epi16(pX, (__m512i)x);
+}
+
+// write C after last reduction
+template<typename... T>
+static inline void store(fp32_t *pX, T&&... x) {
+    constexpr __mmask16 _m = ((1<<sizeof...(T))-1);
+    auto pack = hadd(std::forward<T>(x)...);
+    _mm512_mask_storeu_ps(pX, _m, pack);
+}
+
+// p'etre un "masque" A(quantisé>bf16)/B(fp32>bf16)
+enum class ACTION {
+    NONE,
+    STORE,
+    LOAD
+    // + ACC / C config!
+};
+
+template<size_t M, size_t N, ACTION ACT=ACTION::NONE, bool ACC=false, typename TA, typename TB, typename TC>
+static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K, bf16_t *pB_=nullptr, std::size_t ldb_=0) {
+    constexpr int K0 = 32; // 32 bf16 !
+    static_assert(N>0);
+    static_assert(M>0);
+    // K%32 == 0!!
+    // A[?,K+:lda]
+    // B[?,K+:ldb]
+    // C[?,ldc]
+    __m512   C[M][N];
+    __m512bh A[M];
+    #pragma GCC unroll N
+    for(size_t j=0; j<N; j++) {
+        #pragma GCC unroll M
+        for(size_t i=0; i<M; i++) {
+            C[i][j] = _mm512_setzero_ps();
+        }
+    }
+    //     #pragma GCC unroll K1 => voir si c'est mieux.
+    //#pragma GCC unroll 4 //  ne change pas grand chose
+    for (std::size_t k=0; k<K; k+=K0) {
+        #pragma GCC unroll M
+        for(size_t i=0; i<M; i++) {
+            A[i] = load(pA+i*lda+k);
+        }
+        #pragma GCC unroll N
+        for(size_t j=0; j<N; j++) {
+            __m512bh B;
+            // gestion d'un cache pour B
+            if constexpr(ACT!=ACTION::LOAD) B = load(pB+j*ldb+k);
+            if constexpr(ACT==ACTION::LOAD) B = load(pB_+j*ldb_+k);
+            #pragma GCC unroll M
+            for(size_t i=0; i<M; i++) {
+                C[i][j] = madd(A[i], B, C[i][j]);
+            }
+            if constexpr(ACT==ACTION::STORE) store(pB_+j*ldb_+k, B);
+        }
+    }
+
+    // reduce and store C res.
+    #pragma GCC unroll N
+    for(size_t j=0; j<N; j++) {
+        #pragma GCC unroll N
+        for(size_t i=0; i<M; i++) {
+            if constexpr (ACC) {
+                pC[i+j*ldc] += hsum(C[i][j]);
+            } else {
+                pC[i+j*ldc] = hsum(C[i][j]);
+            }
+        }
+    }
+}
+
+template<size_t M, size_t N, ACTION ACT=ACTION::NONE, bool ACC=false, typename TA, typename TB, typename TC>
+static void sgemm_512_bloc(TA* A, TB* B, TC* C, size_t m, size_t n, size_t k, size_t lda, size_t ldb, size_t ldc, bf16_t* B_, size_t ldb_) {
+    GGML_ASSERT(m<=M);
+    GGML_ASSERT(n<=N);
+
+    // choix du kernel:
+    if ((M==m) && (N==n)) { // seul cas traité pour l'instant
+        gemm<M,N,ACT,ACC>(A, B, C, lda, ldb, ldc, k, B_,ldb_);
+        return;
+    }
+    if constexpr (M>1) { // arret de la recursion
+        if (M>m) {
+            sgemm_512_bloc<M-1,N,ACT,ACC>(A,B,C,m,n,k,lda,ldb,ldc, B_,ldb_);
+        }
+    }
+    if constexpr (N>1) { // arret de la recursion
+        if (M==m && N>n) {
+            sgemm_512_bloc<M,N-1,ACT,ACC>(A,B,C,m,n,k,lda,ldb,ldc, B_,ldb_);
+        }
+    }
+}
+
+template<size_t M1, size_t N1, size_t M0, size_t N0, size_t K0=1024, typename TA, typename TB, typename TC>
+static inline void sgemm_512_bloc(const Matrice<TA>& A, const Matrice<TB>& B, Matrice<TC>& C, size_t I0, size_t J0, bf16_t* B_) {
+    const size_t IN = std::min(C.DIM1(), I0+M1*M0);
+    const size_t JN = std::min(C.DIM2(), J0+N1*N0);
+    const auto KN = A.DIM1(); // == B.DIM1()
+
+    if (B_) {
+        for (size_t k=0; k<KN; k+=K0) {
+            const auto _K = std::min(K0,KN-k);
+            for (size_t j=J0; j<JN; j+=N0) {
+                const auto _N = std::min(N0,JN-j);
+                if (k==0) {
+                    sgemm_512_bloc<M0,N0,ACTION::STORE,false>(A.addr(0,I0),B.addr(0,j),C.addr(I0,j),std::min(M0,IN-I0),_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                } else {
+                    sgemm_512_bloc<M0,N0,ACTION::STORE,true>(A.addr(k,I0),B.addr(k,j),C.addr(I0,j),std::min(M0,IN-I0),_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                }
+                if (I0+M0<IN)
+                for (size_t i=I0+M0; i<IN; i+=M0) {
+                    const auto _M = std::min(M0,IN-i);
+                    if (k==0) {
+                        sgemm_512_bloc<M0,N0,ACTION::LOAD,false>(A.addr(0,i),B.addr(0,j),C.addr(i,j),_M,_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                    } else {
+                        sgemm_512_bloc<M0,N0,ACTION::LOAD,true>(A.addr(k,i),B.addr(k,j),C.addr(i,j),_M,_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                    }
+                }
+            }
+        }
+    } else {
+        for (size_t k=0; k<KN; k+=K0) {
+            const auto _K = std::min(K0,KN-k);
+            for (size_t j=J0; j<JN; j+=N0) {
+                const auto _N = std::min(N0,JN-j);
+                for (size_t i=I0; i<IN; i+=M0) {
+                    const auto _M = std::min(M0,IN-i);
+                    if (k==0) {
+                        sgemm_512_bloc<M0,N0,ACTION::NONE,false>(A.addr(0,i),B.addr(0,j),C.addr(i,j),_M,_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                    } else {
+                        sgemm_512_bloc<M0,N0,ACTION::NONE,true>(A.addr(k,i),B.addr(k,j),C.addr(i,j),_M,_N,_K, A.LD(),B.LD(),C.LD(), B_, K0);
+                    }
+                }
+            }
+        }
+    }
+}
+// end #include "matmul_cpu.h"
+
 void ggml_backend_bf16_context::mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) {
     const auto m = C.DIM1(); // == A.DIM2()
     const auto n = C.DIM2(); // == B.DIM2()
@@ -330,8 +491,38 @@ void ggml_backend_bf16_context::mul_mat(const Matrice<bf16_t>& A, const Matrice<
     GGML_ASSERT(A.LD()>=k);
     GGML_ASSERT(B.LD()>=k);
     GGML_ASSERT(C.LD()>=m);
-    // TODO: l'implementation.
-    //[...]
+    if(n<=6) {
+        constexpr size_t M0 = 4; //6;
+        constexpr size_t N0 = 6; //;
+        constexpr size_t M1 = 10;
+        constexpr size_t K0 = 4096;
+        //static thread_local bf16_t B_cache[N0*K0];
+        bf16_t B_cache[N0*K0];
+
+        #pragma omp parallel for private(B_cache) schedule(guided)
+        //#pragma omp parallel for schedule(guided)
+        for (size_t i=0; i<m; i+=M1*M0) {
+            //sgemm_512_bloc<M1,1,M0,N0,K0>(A, B, C, i, 0, nullptr);
+            sgemm_512_bloc<M1,1,M0,N0,K0>(A, B, C, i, 0, B_cache);
+        }
+    // @ voir a partir de quel taille rester sur le CPU ou passer sur le GPU... N1=16/32...
+    } else {
+        // la taille des plus grand blocs.
+        constexpr size_t M0 = 5;
+        constexpr size_t N0 = 5;
+        constexpr size_t M1 = 10;
+        constexpr size_t N1 = 4;
+        constexpr size_t K0 = 4096;
+        bf16_t B_cache[N0*K0];
+
+        // schedule(dynamique)
+        #pragma omp parallel for collapse(2) private(B_cache) schedule(guided)
+        for (size_t i=0; i<m; i+=M1*M0) {
+            for (size_t j=0; j<n; j+=N1*N0) {
+                sgemm_512_bloc<M1,N1,M0,N0,K0>(A, B, C, i, j, B_cache);
+            }
+        }
+    }
 }
 // end #include "ggml-bf16/matmul.cpp"
 
