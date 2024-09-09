@@ -2562,7 +2562,8 @@ static struct ggml_tensor * ggml_new_tensor_impl(
         /*.data         =*/ obj_alloc_size > 0 ? (void *)(result + 1) : data,
         /*.name         =*/ { 0 },
         /*.extra        =*/ NULL,
-        ///*.padding      =*/ { 0 },
+        /*.bf16_op      =*/ NULL,
+        /*.padding      =*/ { 0,0,0,0,0,0,0,0 },
     };
 
 #ifdef __clang__
@@ -16863,6 +16864,7 @@ static struct ggml_tensor * ggml_recompute_graph_node(
     clone->grad     = node->grad;
     clone->flags    = node->flags;
     clone->extra    = node->extra;
+    // clone->bf16_op  = node->bf16_op;
     for (int k = 0; k < GGML_MAX_DIMS; ++k) {
         clone->nb[k] = node->nb[k];
     }
