@@ -2562,8 +2562,9 @@ static struct ggml_tensor * ggml_new_tensor_impl(
         /*.data         =*/ obj_alloc_size > 0 ? (void *)(result + 1) : data,
         /*.name         =*/ { 0 },
         /*.extra        =*/ NULL,
+        /*.bf16_tensor  =*/ NULL,
         /*.bf16_op      =*/ NULL,
-        /*.padding      =*/ { 0,0,0,0,0,0,0,0 },
+        /*.padding      =*/ // { 0,0,0,0,0,0,0,0 },
     };
 
 #ifdef __clang__

@@ -625,8 +625,9 @@ extern "C" {
         char name[GGML_MAX_NAME];
 
         void * extra; // extra things e.g. for ggml-cuda.cu
-        void * bf16_op;  // we need element for every backend!!! Ca ne marche pas...
-        char padding[8];
+        void * bf16_tensor;  // est reinitialisé si ca n'est pas un poids
+        void * bf16_op;      // est reinitialisé pour tous les non op
+        // char padding[8];
     };
 
     static const size_t GGML_TENSOR_SIZE = sizeof(struct ggml_tensor);

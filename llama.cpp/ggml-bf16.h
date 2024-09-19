@@ -16,6 +16,7 @@ extern "C" {
 
 // backend API
 GGML_API GGML_CALL ggml_backend_t ggml_backend_bf16_init(void);
+GGML_API GGML_CALL ggml_backend_buffer_type_t ggml_backend_bf16_buffer_type(void);
 
 #ifdef  __cplusplus
 }

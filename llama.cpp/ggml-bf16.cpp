@@ -22,12 +22,31 @@ GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 ./usr/bin/llamafile-bench -m Mistral-N
 ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 
  */
+
+/*
+QQ note:
+ voir ggml_backend_buffer_type_i et creer un buffer...
+ - get_alloc_size est appelé avec le tenseur pour recuperer la taille necessaire
+ - alloc_buffer => appelé avec une taille a allouer. doit etre configuré si besoin pour le GPU!
+ un buffer est "utilisé" pour plusieur tenseur apres!  (cuda n'alloue pas tjs le buffer a ce moment mais dans init_tensor ?
+ - get_max_size peut permetre de limiter la taille des buffers allouable (?)
+
+> la suite est dans ggml_backend_buffer_i
+  - init_tensor
+  - set_tensor ...  (a priory offset seulement pour les kv ???)
+
+# Trace/debug: voir GGML_SCHED_DEBUG=1
+
+ */
+
 #include "ggml-bf16.h"
 
 #ifdef __x86_64__
 #include "ggml-backend-impl.h"
 #include "ggml.h"
 #include "json.h" // https://github.com/nlohmann/json?tab=readme-ov-file#specializing-enum-conversion
+
+#include "ggml-x86_64-immintrin.h"
 
 #include <cstdlib>
 #include <cstddef>  // #include <stddef.h>
@@ -36,27 +55,6 @@ GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 ./usr/bin/llamafile-bench -m Mistral-N
 #include <string>
 #include <regex>
 #include <list>
-
-#include <immintrin.h>
-// vectorized :
-extern __inline __m512bh
-__attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
-_mm512_castsi512_bh (__m512i __A)
-{
-    return (__m512bh) (__A);
-}
-extern __inline __m256bh
-__attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
-_mm256_castsi256_bh (__m256i __A)
-{
-    return (__m256bh) (__A);
-}
-extern __inline __m512i
-__attribute__ ((__gnu_inline__, __always_inline__, __artificial__))
-_mm512_castbh_si512 (__m512bh __A)
-{
-    return (__m512i) (__A);
-}
 
 //------------------------------------------------------------------------------------
 // #define DO_TIMING
@@ -132,6 +130,21 @@ using fp32_t = float;
 using bf16_t = struct _bf16_t;
 using f8_E4M3_t = struct _f8_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E4M3
 
+// qq types composés
+struct bf16_2x16_t {
+    union {
+        __m512bh f; // acce en bf16 @ privilegier
+        __m512i  e; // acce "entier" pour certain intrinsec.
+    };
+};
+struct fp32_16x1_t {
+    union {
+        __m512  f; // acce en fp32 @ privilegier
+        __m512i e; // acce "entier" pour certain intrinsec.
+    };
+};
+// voir a ajouter qq operateurs ...
+
 template<typename T> inline bool is(const struct ggml_tensor * t) {return false;}
 template<> inline bool is<   fp32_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_F32;}
 template<> inline bool is<   bf16_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_BF16;}
@@ -204,6 +217,7 @@ namespace ggml::bf16 {
     static type_from_patern get_type;
 
     // gestion des types...
+    // TODO ajouter les type composé...
     template<TYPE T> struct type { using t = void; };
 #define TYPE_OF(T) ggml::bf16::type<ggml::bf16::TYPE::T>::t
     // le mapping:
@@ -232,24 +246,87 @@ namespace ggml::bf16 {
         // - les tenseur dynamique sont static
         // - les tenseur constant sont instancé/calculé
 
-        static void set(const struct ggml_tensor *op, tensor* backend) {
-            // normalement a ne pas faire ;)
-            const_cast<struct ggml_tensor *>(op)->bf16_op = backend;
+        static void set(struct ggml_tensor *op, tensor* backend) {
+            op->bf16_tensor = backend;
         }
         static tensor* get(const struct ggml_tensor *op) {
-            // normalement a ne pas faire ;)
-            return (tensor*) const_cast<struct ggml_tensor *>(op)->bf16_op;
+            return (tensor*) op->bf16_tensor;
         }
     };
 
     // TODO: les tenseurs specifique a utiliser...
-    //class tensor_pack : public tensor { };
+    // 2 cas:
+    //  - les tenseurs complet
+    //  - les blocs seuls !!!
+    template<typename TYPE, size_t K0, size_t M0, size_t K1, size_t M1>
+    class bloc /*: public tensor*/ {
+    public:
+        bloc() {
+            static_assert(K0*M0*sizeof(TYPE) == 512/8);
+            // m_values = nullptr;
+        }
+        // acces element simple.
+        TYPE& operator()(size_t i, size_t j) {
+            auto i0 = i%K0;
+            auto i1 = i/K0;
+            auto j0 = j%M0;
+            auto j1 = j/M0;
+            //return m_values[i0+K0*j0+i1*M0*K0+j1*K0*M0*K1];
+            return m_values[j1][i1][j0][i0];
+        }
+        // acces vecteur.
 
+    private:
+        //TYPE* m_values; // stockage [M1][K1][M0][K0] !
+        TYPE m_values[M1][K1][M0][K0]; //
+    };
+
+    // fait comme ca ca impose des (grosse) containte sur K & M
+    template<typename TYPE, size_t M0, size_t N0, size_t M1, size_t N1>
+    class tensor_bloc {
+    public:
+        using bloc_t = bloc<TYPE,M0,N0,M1,N1>;
+
+        // TODO: voir quel autre constructeur sont possible/utils!
+        tensor_bloc(TYPE* data, size_t M, size_t N, size_t ld):
+            M2(M/(M0*M1)),
+            N2(N/(M0*M1))
+        {
+            GGML_ASSERT(M%(M0*M1) == 0);
+            GGML_ASSERT(N%(N0*N1) == 0);
+            m_values = new bloc_t[M2*N2];
+            // il faut recopier data au bon endroit ...
+            for (size_t i=0; i<M; i++) {
+                for (size_t j=0; j<M; j++) {
+                    (*this)(i,j) = data[i,ld*j];
+                }
+            }
+        }
+
+        TYPE& operator()(size_t i, size_t j) {
+            const auto i2 = i/(M0*M1);
+            const auto j2 = j/(N0*N1);
+            const auto ib = i%(M0*M1);
+            const auto jb = j%(N0*N1);
+            //
+            return m_values[i2+j2*M2](ib,jb);
+        }
+
+    private:
+        const size_t M2;
+        const size_t N2;
+        bloc_t* m_values;
+    };
+
+
+    // TODO: gere TYPE + TAILLE_BLOC!
     static tensor tensor_non_supporte_t(TYPE::NON_SUPPORTE);
-    static tensor tensor_a_convertir(TYPE::A_CONVERTIR);
+    static tensor tensor_a_convertir(TYPE::A_CONVERTIR);  // ??? pas forcement utils?
     static tensor tensor_fp32_t(TYPE::FP32);
-    static tensor tensor_bf16_32x1_t(TYPE::BF16_32x1);
     static tensor tensor_bf16_t(TYPE::BF16);
+
+    static tensor tensor_bf16_32x1_t(TYPE::BF16_32x1);
+    static tensor tensor_bf16_2x16_t(TYPE::BF16_2x16);
 
     // que des instances "static"
     // Arbre de decision ?
@@ -259,12 +336,14 @@ namespace ggml::bf16 {
         // - is_alowed => TODO...
         virtual bool C_is_allowed(const struct ggml_tensor *C) {
             // TODO @ mettre dans un fils!
+            // TODO tester avec le type_bf16 de ce tenseur maintenant qu'il est mis
             if (C->type != GGML_TYPE_F32) return false;
             if (ggml_is_transposed(C)) return false;
             return true;
         }
         virtual bool B_is_allowed(const struct ggml_tensor *B) {
             // TODO @ mettre dans un fils!
+            // TODO tester avec le type_bf16 de ce tenseur maintenant qu'il est mis
             if (B->type != GGML_TYPE_F32) return false;
             if (ggml_is_transposed(B)) return false;
             return true;
@@ -311,7 +390,6 @@ namespace ggml::bf16 {
 // - bf16:
 //    bf16_8x8  => voir si on gagne sans reformatage (kv_cache...)
 //    bf16_8x8  => avec reformatage (pour comparer a 2x16)
-
 
 
 //#############################################################
@@ -362,180 +440,7 @@ public:
     }
 };
 
-//------------------------------------------------------------------------------------
-// le context definissant le backend
-class ggml_backend_bf16_context {
-public:
 
-    ~ ggml_backend_bf16_context() {
-        // TODO: il faut faire le menage de tout ce que le backend a cree.
-        //   si on ne peu pas le netoyé plus finement:
-        // - store all tensor (ggml_bf16_op)
-        // - free all of them!
-    }
-
-    // le nom du backend
-    inline const char * name() { return "BF16"; }
-
-    // le type de buffer gere par defaut sur ce backend
-    // TODO: creer nos propres buffer avec (ggml_backend_buffer_type_i.is_host => true)
-    inline ggml_backend_buffer_type_t get_default_buffer_type() { return ggml_backend_cpu_buffer_type(); }
-
-    // execution du graph contenant les OPs "supported"
-    inline enum ggml_status graph_compute(struct ggml_cgraph * cgraph) {
-        //std::cout << "." ;
-        for (int i = 0; i < cgraph->n_nodes; i++) {
-            struct ggml_tensor * node = cgraph->nodes[i];
-
-            switch (node->op) {
-            case GGML_OP_MUL_MAT:
-                //std::cout << "RUN> " <<node->op<<"@"<<node->name<< " : "<<node->src[0]->name<<std::endl;
-                ggml::bf16::op::get(node)->exec(node);
-                break;
-
-                //case GGML_OP_OUT_PROD:
-                //    ggml_backend_blas_out_prod(ctx, node);
-                //    break;
-
-                // y a ca dans backend OPENBLAS ... sais pas pourquoi.
-            case GGML_OP_NONE:  // les poids ou les caches... => p'etre les traiter ici (init)
-                std::cout << "RUN> " <<node->op<<"@"<<node->name<<std::endl;
-                // => pas appelé!!!
-                break;
-            case GGML_OP_RESHAPE:
-            case GGML_OP_VIEW:
-            case GGML_OP_PERMUTE:
-            case GGML_OP_TRANSPOSE:
-                break;
-
-            default:
-                fprintf(stderr, "%s: unsupported op %s\n", __func__, ggml_op_desc(node));
-                GGML_ASSERT(false);
-            }
-        }
-
-        return GGML_STATUS_SUCCESS;
-    }
-
-    // doit indiqué si cette operation peut etre executé
-    inline bool supports_op(const struct ggml_tensor * op) {
-        static int test = 1;
-        //auto op_base = ggml_bf16_op::get(op); // tjs null, le graph est tjs re-caculé
-        // dispach des OPs
-        //  - definir ce qui va servir pour le calcul
-        //  - comme ce n'est pas conservé => instance "static" fct de la config
-        //      =>  plus rapide pour le calcul il sais ce qu'il a a faire!
-        // si A n'est pas en init on sais plus vite quoi faire... (il peu porter le calcul???)
-        // si A est en init il faudra choisir ce que l'on veux faire:
-        //    -> le choix de la quantisation a utilisé peur dependre d'une config externe
-        //    => avoir une config pour chaque poids "utils" et le type de quantisation...
-        //       avec 1 par defaut!!
-        if (op->op == GGML_OP_MUL_MAT) {
-            // les poids sont soit:
-            //  - deja reformaté
-            //  - en init.
-            // les poids qui sont des caches:
-            //   - deja tagé ...
-            // les A qui sont des op:
-            //  - sans config ...
-
-            // TODO: choisir la 1er OP possible ???
-            for (auto imp : ggml::bf16::matmul_ops) {
-                // l'ordre est important...
-                if (imp->C_is_allowed(op) &&
-                        imp->B_is_allowed(op->src[1]) &&
-                        imp->A_is_allowed(op->src[0]))
-                {
-                    auto bf16_op = imp->inst(op);
-                    if (bf16_op) {
-                        ggml::bf16::op::set(op, bf16_op);
-                        return true;
-                    }
-                }
-            }
-            return false;
-        } else if (op->op == GGML_OP_NONE) {
-            // des tenseurs simple: poids ou
-            auto t = ggml::bf16::tensor::get(op);
-            if (t == nullptr) {
-                // pas encore vu => on va le configurer:
-                // - est-ce un poid?
-                if (op->buffer && (op->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
-                    // oui => on peu le convertir: (pour ceux que l'on sais faire..
-                    // ggml::bf16::tensor::set(op, &ggml::bf16::tensor_a_convertir);
-                    switch (op->type) {
-                    case GGML_TYPE_BF16 :
-                        ggml::bf16::tensor::set(op, &ggml::bf16::tensor_bf16_t);
-                        break;
-                    default:
-                        ggml::bf16::tensor::set(op, &ggml::bf16::tensor_non_supporte_t);
-                    }
-                } else {
-                    // @ priori un cache => pas de conversion "possible"
-                    switch (op->type) {
-                    case GGML_TYPE_BF16 :
-                        ggml::bf16::tensor::set(op, &ggml::bf16::tensor_bf16_t);
-                        break;
-                    default:
-                        ggml::bf16::tensor::set(op, &ggml::bf16::tensor_non_supporte_t);
-                    }
-                }
-                t = ggml::bf16::tensor::get(op);
-            }
-            return t->type != ggml::bf16::TYPE::NON_SUPPORTE;
-        }
-        // else if (op->op == GGML_OP_OUT_PROD) {
-        //    std::cout << " > " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name<<std::endl;
-        //}
-        //if (op_base==nullptr) {
-        //std::cout << "TODO"<<(void*)op<<"/"<<op->bf16_op;
-        //ggml_bf16_op::set(op, new ggml_bf16_op_notsupported());
-        //std::cout << "/"<<op->bf16_op<<"/"<<ggml_bf16_op::get(op)<<"> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
-        //}
-        return false;
-    }
-
-    // ???
-    inline bool supports_buft(ggml_backend_buffer_type_t buft) {
-        return ggml_backend_buft_is_host(buft);
-    }
-
-private:
-    // AUTRE_OP
-};
-
-//------------------------------------------------------------------------------------
-// les methodes du backend => wrapper (elle sont codé dans la classe)
-GGML_CALL static const char * ggml_backend_bf16_name(ggml_backend_t backend) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    return ctx->name();
-}
-
-GGML_CALL static void ggml_backend_bf16_free(ggml_backend_t backend) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    delete ctx;
-    delete backend;
-}
-
-GGML_CALL static ggml_backend_buffer_type_t ggml_backend_bf16_get_default_buffer_type(ggml_backend_t backend) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    return ctx->get_default_buffer_type();
-}
-
-GGML_CALL static enum ggml_status ggml_backend_bf16_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    return ctx->graph_compute(cgraph);
-}
-
-GGML_CALL static bool ggml_backend_bf16_supports_op(ggml_backend_t backend, const struct ggml_tensor * op) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    return ctx->supports_op(op);
-}
-
-GGML_CALL static bool ggml_backend_bf16_supports_buft(ggml_backend_t backend, ggml_backend_buffer_type_t buft) {
-    ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
-    return ctx->supports_buft(buft);
-}
 
 //------------------------------------------------------------------------------------
 //------------------------------------------------------------------------------------
@@ -543,6 +448,10 @@ GGML_CALL static bool ggml_backend_bf16_supports_buft(ggml_backend_t backend, gg
 //------------------------------------------------------------------------------------
 // => implemetation des OPs
 
+
+
+//------------------------------------------------------------------------------------
+// => celui de JART!
 // cas K%32 = 0
 // - fp32:
 static inline auto load(const fp32_t *X) {
@@ -671,6 +580,10 @@ static inline float hsum(__m512 x, fp32_t scale=1) {
 
 static inline void store(bf16_t *pX, const __m512bh& x) {
     _mm512_storeu_epi16(pX, (__m512i)x);
+}
+
+static inline void store(fp32_t *pX, const __m512& x) {
+    _mm512_storeu_ps(pX, x);
 }
 
 // write C after last reduction
@@ -851,7 +764,7 @@ class ggml_bf16_op_matmul_1 : public ggml_bf16_op_matmul {
 public:
     //if (B/C->ne[1]>6 );
     bool B_is_allowed(const struct ggml_tensor *B) override {
-        if (B->ne[1]>6) return false;
+        if (B->ne[1]>4) return false;
         return ggml_bf16_op_matmul::B_is_allowed(B);
     }
     bool A_is_allowed(const struct ggml_tensor *A) override {
@@ -859,12 +772,7 @@ public:
         if (!a) return false; // voir si/quand ca peu arriver
         // on sais deja:
         if (a->type == ggml::bf16::TYPE::BF16_32x1) return true;
-        if (a->type == ggml::bf16::TYPE::NON_SUPPORTE) return false;
-        if (ggml_is_transposed(A)) return false;
-        if (a->type == ggml::bf16::TYPE::BF16 && A->ne[0] % 32 == 0) {
-            ggml::bf16::tensor::set(A, &ggml::bf16::tensor_bf16_32x1_t);
-            return true;
-        }
+        // y a t'il d'autre cas compatible?
         return false;
     }
     void mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
@@ -875,10 +783,10 @@ public:
         GGML_ASSERT(B.LD()>=k);
         GGML_ASSERT(C.LD()>=m);
         // ici k<=6 ...
-        constexpr size_t M0 = 4; //6;
-        constexpr size_t N0 = 6; //;
-        constexpr size_t M1 = 10;
-        constexpr size_t K0 = 4096;
+        constexpr size_t M0 = 8; //4;
+        constexpr size_t N0 = 3; //6;
+        constexpr size_t M1 = 4;
+        constexpr size_t K0 = 2560; // 5120; //2048+512; // 4096+1024;
         //static thread_local bf16_t B_cache[N0*K0];
         bf16_t B_cache[N0*K0];
 
@@ -891,6 +799,104 @@ public:
     }
 };
 
+//----------------------------------------------
+// cas block de BF16:
+namespace ggml::bf16::op_matmul {
+    class bf16_2x16: public ggml::bf16::op {
+
+        void exec(struct ggml_tensor *op) const override {
+            // TODO
+            auto a = ggml::bf16::tensor::get(op->src[0]);
+            if (a->type != ggml::bf16::TYPE::BF16_2x16) {
+                // => conversion ??? ou doit daja l'etre!!!
+            }
+        }
+
+        // voir si on fait plusieurs cas 16xN  32xN...
+        //bool B_is_allowed(const struct ggml_tensor *B) override {
+        //    if (B->ne[1]>6) return false;
+        //    return ggml_bf16_op_matmul::B_is_allowed(B);
+        //}
+        bool A_is_allowed(const struct ggml_tensor *A) override {
+            auto a = ggml::bf16::tensor::get(A);
+            if (!a) return false; // voir si/quand ca peu arriver
+            // on sais deja:
+            if (a->type == ggml::bf16::TYPE::BF16_2x16) return true;
+            return false;
+        }
+
+        // le bloc de bas niveau
+        // TODO: gerer des Tensor / BlocTensor et pas des Type* !!!
+        // ca evite de passer ld[a,b,c] et permet de gerer correctement les different bloc!
+        //  => K0/M0 sont alors fixé pour A!
+        //  et gerer les conversions / acces vecteurs ...
+        //  load<bf16_32> / load<bf16_2x16> / load<bf16_t,32>...
+        // ??? les BlocTensor n'ont p'etre pas trop d'acces possible load_v/load_s ...
+        //  ou load(out, i, j);
+        template<size_t M1, size_t N0, typename TA, typename TB, typename TC>
+        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2) {
+            constexpr int K0 =  2; //
+            constexpr int M0 = 16; // 16 FP32 => 1 AVX512!
+            constexpr int K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
+            static_assert(M1>0);
+            static_assert(N0>0);
+            static_assert(M1%M0 == 0);
+
+            GGML_ASSERT(K2%K1 == 0);
+
+            // K%32 == 0!!
+            // A[?,K+:lda]
+            // B[?,K+:ldb]
+            // C[?,ldc]
+            __m512   C[M1/M0][N0];    // m512   == fp32[M0]
+            __m512bh A[K1/K0][M1/M0]; // m512bh == bf16[M0][K0]
+
+#pragma GCC unroll N0
+            for(size_t j=0; j<N0; j++) {
+#pragma GCC unroll (M1/M0)
+                for(size_t i=0; i<(M1/M0); i++) {
+                    C[i][j] = _mm512_setzero_ps();
+                }
+            }
+
+            for (size_t k2=0; k2<K2; k2+=K1) {
+                // chargement de A
+                for (size_t k1=0; k1<K1/K0; ++k1) {
+                    for (size_t i1 = 0; i1<M1/M0; ++i1) {
+                        //A[k1][i1] = load(pA+M1*K0*k1 + i1*M0*K0); // non sinon pas le meme format que bf16_2x16 ! (bf16_2x32...)
+                        A[k1][i1] = load(pA+M1*K0*k1 + i1*M0*lda); // ??? K2 = lda (ou K2*M0 ?)
+                        //A[k1][i1] = pA.load_32(M1*K0*k1, i1*M0);  // mieux ? mais faire un control tout n'est pas possible
+                        //A[k1][i1] = pA.load_32(M1*k1, i1);
+                    }
+                }
+                for (size_t j=0; j<N0; ++j) {
+                    // on charge K1 valeur de B
+                    __m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
+
+                    for (size_t k1=0; k1<K1/K0; ++k1) {
+                        auto _B = _mm512_broadcastd_2pbh(B);
+                        B = _mm_shiftl_2pbh(B);
+                        for (size_t i1=0; i1<M1/M0; ++i1) {
+                            C[i1][j] = madd(A[k1][i1], _B, C[i1][j]);
+                        }
+                    }
+                }
+            }
+
+            // ecriture de C...
+#pragma GCC unroll N0
+            for(size_t j=0; j<N0; j++) {
+#pragma GCC unroll (M1/M0)
+                for (size_t i1=0; i1<M1/M0; ++i1) {
+                    store(pC+i1*M0+j*ldc, C[i1][j]);
+                }
+            }
+        }
+    };
+
+}
+
+
 class ggml_bf16_op_matmul_2 : public ggml_bf16_op_matmul {
 public:
     // la derniere chance!
@@ -899,12 +905,7 @@ public:
         if (!a) return false; // voir si/quand ca peu arriver
         // on sais deja:
         if (a->type == ggml::bf16::TYPE::BF16_32x1) return true;
-        if (a->type == ggml::bf16::TYPE::NON_SUPPORTE) return false;
-        if (ggml_is_transposed(A)) return false;
-        if (a->type == ggml::bf16::TYPE::BF16 && A->ne[0] % 32 == 0) {
-            ggml::bf16::tensor::set(A, &ggml::bf16::tensor_bf16_32x1_t);
-            return true;
-        }
+        // y a t'il d'autre cas compatible?
         return false;
     }
     void mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
@@ -918,9 +919,9 @@ public:
         // la taille des plus grand blocs.
         constexpr size_t M0 = 5;
         constexpr size_t N0 = 5;
-        constexpr size_t M1 = 10;
+        constexpr size_t M1 = 8;
         constexpr size_t N1 = 4;
-        constexpr size_t K0 = 4096;
+        constexpr size_t K0 = 5120; //2560; //4096;
         bf16_t B_cache[N0*K0];
 
         // schedule(dynamique)
@@ -935,66 +936,452 @@ public:
 
 
 ////////////////////////////////////////
-// l'init du backend
-static struct ggml_backend_i blas_backend_i = {
-        /* .get_name                = */ ggml_backend_bf16_name,  // wraper(ggml_backend_bf16_context::name)
-        /* .free                    = */ ggml_backend_bf16_free,
-        /* .get_default_buffer_type = */ ggml_backend_bf16_get_default_buffer_type,
-        /* .set_tensor_async        = */ nullptr,  // voir ggml_backend_tensor_set_async
-        /* .get_tensor_async        = */ nullptr,
-        /* .cpy_tensor_async        = */ nullptr,
-        /* .synchronize             = */ nullptr,
-        /* .graph_plan_create       = */ nullptr,
-        /* .graph_plan_free         = */ nullptr,
-        /* .graph_plan_update       = */ nullptr,
-        /* .graph_plan_compute      = */ nullptr,
-        /* .graph_compute           = */ ggml_backend_bf16_graph_compute,
-        /* .supports_op             = */ ggml_backend_bf16_supports_op,
-        /* .supports_buft           = */ ggml_backend_bf16_supports_buft,  // si tout les entrée sont suporté l'op devrai lui etre assigné??? enfin pas sur!!
-        /* .offload_op              = */ nullptr,
-        /* .event_new               = */ nullptr,
-        /* .event_free              = */ nullptr,
-        /* .event_record            = */ nullptr,
-        /* .event_wait              = */ nullptr,
-        /* .event_synchronize       = */ nullptr,
-};
+// l'init du backend: [TODO: @ metre sous namespace!]
 
-static ggml_guid_t ggml_backend_bf16_guid(void) {
-    static ggml_guid guid = { 0xca, 0xfe, 0xde, 0xca, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
-    return &guid;
+//------------------------------------------------------------------------------------
+// le context definissant le backend
+// - ??? comment on gere les tenseurs du backend?
+namespace ggml::backend::bf16::tensor {
+}
+// - le buffer
+namespace ggml::backend::bf16::buffer {
+    // TODO: le buffer de ce backend
+    //  => comme pour les autre C => class context;
+    static constexpr std::size_t TENSOR_ALIGNMENT = 64;
+    class context {
+    public:
+        context(size_t size) : m_size(size) {
+            m_data = new (std::align_val_t(TENSOR_ALIGNMENT)) uint8_t[m_size];
+        }
+        ~context() {
+            delete[] m_data;
+        }
+        inline std::size_t get_size() {
+            return m_size;
+        }
+        inline ggml::bf16::tensor* get_tensor_type(ggml_tensor * tensor) {
+            if (ggml_is_transposed(tensor)) return nullptr;
+            ggml::bf16::tensor* t = nullptr;
+            if (tensor->buffer && (tensor->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
+                // TODO: les poids ... peuvent supporter plus de transformations que d'autre...
+            }
+            switch (tensor->type) {
+            case GGML_TYPE_BF16 :
+                // - est-ce un poid?
+                // if (tensor->buffer && (tensor->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
+                //   pour les poids on se permet de convertir / packer le tenseur
+                //   la transformation ser faite par le set_tensor
+                //   ceux qui sont eligible sont restreint a ceux qui servent au matmul!
+                //ggml::bf16::tensor::set(tensor, &ggml::bf16::tensor_bf16_t);
+                if (tensor->ne[0] % 32 == 0) {
+                    t=&ggml::bf16::tensor_bf16_32x1_t;
+                }
+            /* TODO: les autres cas possible && "activé"
+            if (a->type == ggml::bf16::TYPE::NON_SUPPORTE) return false;
+            if (a->type == ggml::bf16::TYPE::BF16
+                    && A->ne[0] %  2 == 0  // K%2 == 0
+                    && A->ne[1] % 16 == 0  // M%16 == 0
+            )
+            {
+                // OK on va utiliser des bloc de A[16,2] (K0=2, M0=16)
+                ggml::bf16::tensor::set(A, &ggml::bf16::tensor_bf16_2x16_t);
+                return true;
+            }
+            */
+                break;
+            case GGML_TYPE_F32 :
+                //  il faut verifier en fonction de type de produit le format a utiliser...
+                t=&ggml::bf16::tensor_fp32_t;
+                break;
+            }
+            return t;
+        }
+        // l'interface: ggml_backend_buffer_i
+        inline const char * get_name(void){ return "BF16"; }
+        inline void *       get_base(void) { return m_data; }
+        inline void         init_tensor(ggml_tensor * tensor) {
+            // on configurer tous les tenseur tel que l'on veux qu'il soit:
+            auto t = ggml::bf16::tensor::get(tensor);
+            if (t == nullptr) {
+                // pas encore vu => on va le configurer:
+                t = get_tensor_type(tensor);
+                // OK on fixe le type !
+                if (t) {
+                    ggml::bf16::tensor::set(tensor, t);
+                } else {
+                    ggml::bf16::tensor::set(tensor, &ggml::bf16::tensor_non_supporte_t);
+                }
+            } else {
+                std::cout << "re-init_tensor:" <<tensor->op<< tensor << std::endl;
+            }
+        }
+        inline void         set_tensor(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+            // TODO: @ revoir ca va dependre du type dans le backend!!!
+            //  et normalement on sais deja en fct des 2 types ce qu'il y a a faire..
+            if (tensor->buffer && (tensor->buffer->usage != GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
+                //std::cout << "set_tensor(non-weight):" <<tensor->op<< tensor << std::endl;
+            }
+            memcpy((char *)tensor->data + offset, data, size);
+        }
+        inline void         get_tensor(const struct ggml_tensor * tensor,       void * data, size_t offset, size_t size) {
+            // @ revoir ca va dependre du type dans le backend!!!
+            //std::cout << "get_tensor:" <<tensor->op<< tensor << std::endl;
+            memcpy(data, (const char *)tensor->data + offset, size);
+        }
+        inline bool         cpy_tensor(const struct ggml_tensor * src, struct ggml_tensor * dst) {
+            // @ revoir ca va dependre du type dans le backend!!!
+            if (ggml_backend_buffer_is_host(src->buffer)) {
+                std::cout << "cpy_tensor:" << src <<"/"<< dst << std::endl;
+                memcpy(dst->data, src->data, ggml_nbytes(src));
+                return true;
+            }
+            return false;
+        }
+        inline void         clear(uint8_t value) {
+            // mise a part mettre tout a 0 ... je pense pas qu'il puisse y avoir d'autre valeur...
+            for (std::size_t i=0; i<m_size; ++i) m_data[i]= value;
+        }
+        inline void         reset() {}
+
+    private:
+        // les données du "context == buffer"
+        uint8_t * m_data;
+        const std::size_t m_size;
+    };
+
+    // les wrapper:
+    static inline context* ctx(ggml_backend_buffer_t buffer) { return (context*) buffer->context; }
+    static GGML_CALL const char * get_name(ggml_backend_buffer_t buffer){
+        return ctx(buffer)->get_name();
+    }
+    static GGML_CALL void free_buffer(ggml_backend_buffer_t buffer){
+        delete ctx(buffer);
+    }
+    static GGML_CALL void * get_base(ggml_backend_buffer_t buffer) {
+        return ctx(buffer)->get_base();
+    }
+    static GGML_CALL void init_tensor(ggml_backend_buffer_t buffer, struct ggml_tensor * tensor) {
+        ctx(buffer)->init_tensor(tensor);
+    }
+    static GGML_CALL void set_tensor(ggml_backend_buffer_t buffer,       struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+        ctx(buffer)->set_tensor(tensor, data, offset, size);
+    }
+    static GGML_CALL void get_tensor(ggml_backend_buffer_t buffer, const struct ggml_tensor * tensor,       void * data, size_t offset, size_t size){
+        ctx(buffer)->get_tensor(tensor, data, offset, size);
+    }
+    static GGML_CALL bool cpy_tensor(ggml_backend_buffer_t buffer, const struct ggml_tensor * src, struct ggml_tensor * dst){
+        return ctx(buffer)->cpy_tensor(src, dst);
+    }
+    static GGML_CALL void clear(ggml_backend_buffer_t buffer, uint8_t value) {
+        return ctx(buffer)->clear(value);
+    }
+    static GGML_CALL void reset(ggml_backend_buffer_t buffer) {
+        return ctx(buffer)->reset();
+    }
+
+    static struct ggml_backend_buffer_i interface = {
+        /* .get_name        = */ get_name,
+        /* .free_buffer     = */ free_buffer,
+        /* .get_base        = */ get_base,
+        /* .init_tensor     = */ init_tensor,
+        /* .set_tensor      = */ set_tensor,
+        /* .get_tensor      = */ get_tensor,
+        /* .cpy_tensor      = */ cpy_tensor,
+        /* .clear           = */ clear,
+        /* .reset           = */ reset,
+    };
 }
 
-ggml_backend_t ggml_backend_bf16_init(void) {
-    if (getenv("GGML_USE_BACKEND_BF16") == nullptr) return nullptr;
-    std::string backend_config{getenv("GGML_USE_BACKEND_BF16")};
-    // changer la config en fonction de l'option choisi:
-    // backend_config == "bf16_32x1"
-    // backend_config == "E4M3_8x8_DAZ" // (denormals-are-zero)"
-    // backend_config == "E4M3_8x8"     // process subnormal FP8 nomber on BF16 conversion
-    // ...
-    ggml_backend_t backend = nullptr;
-    // TODO: voir sous quel condition activer ca:
-    if (X86_HAVE(FMA) && X86_HAVE(F16C) && X86_HAVE(AVX2) && X86_HAVE(AVX512F) && X86_HAVE(AVX512BW) && X86_HAVE(AVX512DQ) && X86_HAVE(AVX512VL) && X86_HAVE(AVX512_BF16)) {
-        // voir quel contrainte mettre ... et est-ce que ca doit etre ici?
-        ggml_backend_bf16_context * ctx = new ggml_backend_bf16_context;
+// - le buffer_type
+namespace ggml::backend::bf16::buffer_type {
 
-        backend = new ggml_backend {
-            /* .guid      = */ ggml_backend_bf16_guid(/*config?*/),
-            /* .interface = */ blas_backend_i, // => bf16_backend_i
-            /* .context   = */ ctx,
+    class context {
+    public:
+        inline const char * get_name() { return "BF16"; }
+        // inline ggml_backend_buffer_t alloc_buffer(size_t size) { return nullptr; }
+        inline size_t get_alignment(){
+            return ggml::backend::bf16::buffer::TENSOR_ALIGNMENT; // @ voir quoi mettre: 512 bits?
+        }
+        inline size_t get_max_size(){
+            return (size_t)64*1024*1024*1024; // la taille de la RAM/GGT/VRAM ???
+        }
+        inline size_t get_alloc_size(const struct ggml_tensor * tensor) {
+            // TODO: gerer suivant les cas:
+            //  - poids pour les matmul => en fct du "type" cible
+            return ggml_nbytes(tensor);
+        }
+        inline bool is_host() {
+            return true;
+        }
+    };
+
+    // Les wrapper:
+    static inline context* ctx(ggml_backend_buffer_type_t buft) { return (context*) buft->context; }
+    static GGML_CALL const char * get_name(ggml_backend_buffer_type_t buft) {
+        return ctx(buft)->get_name();
+    }
+    static GGML_CALL ggml_backend_buffer_t alloc_buffer(ggml_backend_buffer_type_t buft, size_t size) {
+        auto buffer_ctx = new ggml::backend::bf16::buffer::context(size);
+        return ggml_backend_buffer_init(buft, ggml::backend::bf16::buffer::interface, buffer_ctx , buffer_ctx->get_size());
+        //return ctx(buft)->alloc_buffer(size);
+    }
+    static GGML_CALL size_t get_alignment(ggml_backend_buffer_type_t buft){
+        return ctx(buft)->get_alignment();
+    }
+    static GGML_CALL size_t get_max_size(ggml_backend_buffer_type_t buft){
+        return ctx(buft)->get_max_size();
+    }
+    static GGML_CALL GGML_CALL size_t get_alloc_size(ggml_backend_buffer_type_t buft, const struct ggml_tensor * tensor){
+        return ctx(buft)->get_alloc_size(tensor);
+    }
+    static GGML_CALL bool is_host(ggml_backend_buffer_type_t buft){
+        return ctx(buft)->is_host();
+    }
+
+    // ATTENTION il faut surement que ca soit static (pour ggml_backend_bf16_init / et 1 par device pour les buffer_type ???)
+    inline ggml_backend_buffer_type_t get() {
+#if 0
+        return ggml_backend_cpu_buffer_type();
+#endif
+        // il peut y en avoir 1 par device... mais tjs static!!
+        static context ctx;
+        static struct ggml_backend_buffer_type ggml_backend_buffer_type = {
+                /* .iface = */ {
+                        /* .get_name         = */ get_name,
+                        /* .alloc_buffer     = */ alloc_buffer,
+                        /* .get_alignment    = */ get_alignment,
+                        /* .get_max_size     = */ get_max_size, // defaults to SIZE_MAX
+                        /* .get_alloc_size   = */ get_alloc_size, // defaults to ggml_nbytes
+                        /* .is_host          = */ is_host,
+                },
+                /* .context = */ &ctx,
         };
+        return &ggml_backend_buffer_type;
+    }
+}
 
-        //if (ggml::bf16::op_jart_1 == nullptr) ggml::bf16::op_jart_1 = new ggml_bf16_op_matmul_1;
-        //if (ggml::bf16::op_jart_2 == nullptr) ggml::bf16::op_jart_2 = new ggml_bf16_op_matmul_2;
-        // il faut les mettre dans l'ordre "priviligé"!
+// - le backend
+namespace ggml::backend::bf16 {
+
+    // TODO: deplacer la class ggml_backend_bf16_context ici!
+    //using context = ggml_backend_bf16_context;
+    //class context {
+    //};
+    // - le context
+    class context {
+    public:
+
+        ~context() {
+            // y a t'il qq-chose a faire.
+        }
+
+        // le nom du backend
+        inline const char * name() { return "BF16"; }
+
+        // le type de buffer gere par ce backend
+        inline ggml_backend_buffer_type_t get_default_buffer_type() {
+            return ggml::backend::bf16::buffer_type::get();
+        }
+
+        // execution du graph contenant les OPs "supported"
+        inline enum ggml_status graph_compute(struct ggml_cgraph * cgraph) {
+            //std::cout << "." ;
+            for (int i = 0; i < cgraph->n_nodes; i++) {
+                struct ggml_tensor * node = cgraph->nodes[i];
+
+                switch (node->op) {
+                case GGML_OP_MUL_MAT:
+                    //std::cout << "RUN> " <<node->op<<"@"<<node->name<< " : "<<node->src[0]->name<<std::endl;
+                    ggml::bf16::op::get(node)->exec(node);
+                    break;
+
+                    //case GGML_OP_OUT_PROD:
+                    //    ggml_backend_blas_out_prod(ctx, node);
+                    //    break;
+
+                    // y a ca dans backend OPENBLAS ... sais pas pourquoi.
+                case GGML_OP_NONE:  // les poids ou les caches... => p'etre les traiter ici (init)
+                    std::cout << "RUN> " <<node->op<<"@"<<node->name<<std::endl;
+                    // => pas appelé!!!
+                    break;
+                case GGML_OP_RESHAPE:
+                case GGML_OP_VIEW:
+                case GGML_OP_PERMUTE:
+                case GGML_OP_TRANSPOSE:
+                    break;
+
+                default:
+                    fprintf(stderr, "%s: unsupported op %s\n", __func__, ggml_op_desc(node));
+                    GGML_ASSERT(false);
+                }
+            }
+
+            return GGML_STATUS_SUCCESS;
+        }
+
+        // doit indiqué si cette operation peut etre executé
+        inline bool supports_op(const struct ggml_tensor * op) {
+            static int test = 1;
+            //auto op_base = ggml_bf16_op::get(op); // tjs null, le graph est tjs re-caculé
+            // dispach des OPs
+            //  - tous les tenseurs sont configuré (par l'init_buffer)
+            //  - les poids sont converti si besoin (par set_buffer)
+            // reste donc a selectioner l'OP compatible!
+            if (op->op == GGML_OP_MUL_MAT) {
+                // choisir la 1er OP possible!
+                for (auto imp : ggml::bf16::matmul_ops) {
+                    // l'ordre est important...
+                    if (imp->C_is_allowed(op) &&
+                            imp->B_is_allowed(op->src[1]) &&
+                            imp->A_is_allowed(op->src[0]))
+                    {
+                        auto bf16_op = imp->inst(op);
+                        if (bf16_op) {
+                            ggml::bf16::op::set(op, bf16_op);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            } else if (op->op == GGML_OP_NONE) {
+                // OK deplacé dans l'init, ca devrait etre bon
+                if (! ggml::bf16::tensor::get(op)) {
+                    std::cout << "ERREUR: tenseur non configuré: " <<op->op<<op<< std::endl;
+                }
+                // TODO: ca ne sert a rien mais on peu retourner true si le poid est pour nous
+                return false;
+            }
+            // else if (op->op == GGML_OP_OUT_PROD) {
+            //    std::cout << " > " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name<<std::endl;
+            //}
+            //if (op_base==nullptr) {
+            //std::cout << "TODO"<<(void*)op<<"/"<<op->bf16_op;
+            //ggml_bf16_op::set(op, new ggml_bf16_op_notsupported());
+            //std::cout << "/"<<op->bf16_op<<"/"<<ggml_bf16_op::get(op)<<"> " <<op->op<<"@"<<op->name<<" ("<<log_srcs(op)<<" => "<<op<<")"<<std::endl;
+            //}
+            return false;
+        }
+
+        // ???
+        inline bool supports_buft(ggml_backend_buffer_type_t buft) {
+            return ggml_backend_buft_is_host(buft);
+        }
+
+    private:
+        // AUTRE_OP
+    };
+
+    static inline context * ctx(ggml_backend_t backend) { return (context *)backend->context; }
+
+    // les methodes du backend => wrapper (elle sont codé dans la classe)
+    static GGML_CALL const char * name(ggml_backend_t backend) {
+        return ctx(backend)->name();
+    }
+
+    static GGML_CALL void free(ggml_backend_t backend) {
+        //ggml_backend_bf16_context * ctx = (ggml_backend_bf16_context *)backend->context;
+        delete ctx(backend);
+        delete backend;
+    }
+
+    static GGML_CALL ggml_backend_buffer_type_t get_default_buffer_type(ggml_backend_t backend) {
+        return ctx(backend)->get_default_buffer_type();
+    }
+
+    static GGML_CALL enum ggml_status graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
+        return ctx(backend)->graph_compute(cgraph);
+    }
+
+    static GGML_CALL bool supports_op(ggml_backend_t backend, const struct ggml_tensor * op) {
+        return ctx(backend)->supports_op(op);
+    }
+
+    static GGML_CALL bool supports_buft(ggml_backend_t backend, ggml_backend_buffer_type_t buft) {
+        return ctx(backend)->supports_buft(buft);
+    }
+
+    static struct ggml_backend_i interface = {
+            /* .get_name                = */ name,
+            /* .free                    = */ free,
+            /* .get_default_buffer_type = */ get_default_buffer_type,
+            /* .set_tensor_async        = */ nullptr,
+            /* .get_tensor_async        = */ nullptr,
+            /* .cpy_tensor_async        = */ nullptr,
+            /* .synchronize             = */ nullptr,
+            /* .graph_plan_create       = */ nullptr,
+            /* .graph_plan_free         = */ nullptr,
+            /* .graph_plan_update       = */ nullptr,
+            /* .graph_plan_compute      = */ nullptr,
+            /* .graph_compute           = */ graph_compute,
+            /* .supports_op             = */ supports_op,
+            /* .supports_buft           = */ supports_buft,  // si tout les entrée sont suporté l'op devrai lui etre assigné??? enfin pas sur!!
+            /* .offload_op              = */ nullptr,
+            /* .event_new               = */ nullptr,
+            /* .event_free              = */ nullptr,
+            /* .event_record            = */ nullptr,
+            /* .event_wait              = */ nullptr,
+            /* .event_synchronize       = */ nullptr,
+    };
+
+    static ggml_guid_t guid(void) {
+        static ggml_guid guid = { 0xca, 0xfe, 0xde, 0xca, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
+        return &guid;
+    }
+
+    static void init() {
+        static bool first = true;
+        if (!first) return;
+        first = false;
+
+        std::string backend_config{getenv("GGML_USE_BACKEND_BF16")};
+        // changer la config en fonction de l'option choisi:
+        // backend_config == "bf16_32x1"
+        // backend_config == "bf16_2x16"
+        // backend_config == "E4M3_8x8_DAZ" // (denormals-are-zero)"
+        // backend_config == "E4M3_8x8"     // process subnormal FP8 nomber on BF16 conversion
+        // ...
+
         ggml::bf16::matmul_ops.clear();
+        // bloc de BF16
+        // TODO: if (backend_config == "bf16_2x16") ggml::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
+        // les JARTs en dernier
         ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1);
         ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2);
     }
+
+    static bool is_enable() {
+        if (getenv("GGML_USE_BACKEND_BF16") == nullptr) return false;
+        // voir ce qui peut conditioner le backend...
+        //  cas llamafile ???
+        return (X86_HAVE(FMA) && X86_HAVE(F16C) && X86_HAVE(AVX2) && X86_HAVE(AVX512F) && X86_HAVE(AVX512BW) && X86_HAVE(AVX512DQ) && X86_HAVE(AVX512VL) && X86_HAVE(AVX512_BF16));
+    }
+
+}
+
+GGML_CALL ggml_backend_buffer_type_t ggml_backend_bf16_buffer_type(void) {
+    if (!ggml::backend::bf16::is_enable()) return nullptr;
+    return ggml::backend::bf16::buffer_type::get();
+}
+
+GGML_CALL ggml_backend_t ggml_backend_bf16_init(void) {
+    if (!ggml::backend::bf16::is_enable()) return nullptr;
+
+    // OK il faut le creer:
+    ggml::backend::bf16::init();
+    // auto context = new ggml_backend_bf16_context;
+    auto backend = new ggml_backend {
+        /* .guid      = */ ggml::backend::bf16::guid(),
+        /* .interface = */ ggml::backend::bf16::interface,
+        /* .context   = */ new ggml::backend::bf16::context,
+    };
     return backend;
 }
 #else
-ggml_backend_t ggml_backend_bf16_init(void) {
+GGML_CALL ggml_backend_t ggml_backend_bf16_init(void) {
     return nullptr;
 }
+GGML_CALL ggml_backend_buffer_type_t ggml_backend_bf16_buffer_type(void) {
+    return nullptr;
+}
+
 #endif

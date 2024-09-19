@@ -50,6 +50,8 @@ o/$(MODE)/llama.cpp/ggml-vector-arm80.o \
 o/$(MODE)/llama.cpp/ggml-vector-arm82.o: \
 		private CCFLAGS += -O3 -mgcc
 
+o/$(MODE)/llama.cpp/ggml-bf16.o: private CCFLAGS += -O3 -mgcc -fopenmp
+
 o/$(MODE)/llama.cpp/ggml-alloc.o			\
 o/$(MODE)/llama.cpp/ggml-backend.o			\
 o/$(MODE)/llama.cpp/grammar-parser.o			\
@@ -85,7 +87,7 @@ o/$(MODE)/llama.cpp/ggml-vector-amd-avx512bf16.o: private TARGET_ARCH += -Xx86_6
 o/$(MODE)/llama.cpp/ggml-vector-arm82.o: private TARGET_ARCH += -Xaarch64-march=armv8.2-a+fp16
 
 # faudra voir pour la partie hip...
-o/$(MODE)/llama.cpp/ggml-bf16.o: private TARGET_ARCH += -Xx86_64-mtune=znver4 -fopenmp -Xx86_64-mavx -Xx86_64-mf16c -Xx86_64-mfma -Xx86_64-mavx2 -Xx86_64-mavx512f -Xx86_64-mavx512bw -Xx86_64-mavx512dq -Xx86_64-mavx512vl -Xx86_64-mavx512bf16
+o/$(MODE)/llama.cpp/ggml-bf16.o: private TARGET_ARCH += -Xx86_64-mtune=znver4 -Xx86_64-mavx -Xx86_64-mf16c -Xx86_64-mfma -Xx86_64-mavx2 -Xx86_64-mavx512f -Xx86_64-mavx512bw -Xx86_64-mavx512dq -Xx86_64-mavx512vl -Xx86_64-mavx512bf16
 
 $(LLAMA_CPP_OBJS): llama.cpp/BUILD.mk
 

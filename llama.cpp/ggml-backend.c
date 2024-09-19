@@ -1421,6 +1421,7 @@ static void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct gg
                         if (src == NULL) {
                             continue;
                         }
+                        //NOTE[JPP] => reassignement sur les noeud compatible... => ggml_backend_sched_buffer_supported
                         if ((tensor_backend_id(src) != -1 || tensor_backend_id(src->view_src) != -1) && ggml_backend_sched_buffer_supported(sched, src, b)) {
                             n_supported++;
                         }
@@ -1435,6 +1436,7 @@ static void ggml_backend_sched_split_graph(ggml_backend_sched_t sched, struct gg
         } else {
             // assigned node: upgrade to higher prio backend if possible
             for (int b = 0; b < *node_backend_id; b++) {
+                // NOTE[JPP]: trop strict ici???
                 if (sched->bufts[b] == sched->bufts[*node_backend_id] && ggml_backend_supports_op(sched->backends[b], node)) {
                     bool supported = true;
                     for (int j = 0; j < GGML_MAX_SRC; j++) {

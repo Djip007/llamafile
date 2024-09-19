@@ -2094,6 +2094,8 @@ struct llama_init_result llama_init_from_gpt_params(gpt_params & params) {
         params.sparams.logit_bias[llama_token_eos(model)] = -INFINITY;
     }
 
+    // 1 passe de warm-up avec 2 tokens?
+    //  => on peu faire nos reformatage a ce moment sans affecte le reste des perfos
     if (params.warmup) {
         LOG("warming up the model with an empty run\n");
 

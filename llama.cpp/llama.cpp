@@ -18,7 +18,6 @@
 #include "ggml-backend.h"
 #include "ggml-cuda.h"
 #include "ggml-metal.h"
-
 #include "ggml-bf16.h" // [jpp] new backend
 
 #include "llamafile/threadlocal.h"
@@ -1767,6 +1766,11 @@ static std::string llama_token_to_piece(const struct llama_model * model, llama_
 static ggml_backend_buffer_type_t llama_default_buffer_type_cpu(bool host_buffer) {
     ggml_backend_buffer_type_t buft = nullptr;
 
+    if (host_buffer && ggml_backend_bf16_buffer_type()) {
+        // dans tous les cas si ce backend est actif on y met tout (qq soit ngl)
+        buft = ggml_backend_bf16_buffer_type();
+        //return nullptr;
+    } else
 // #if defined(GGML_USE_CUDA)
     // host buffers should only be used when data is expected to be copied to/from the GPU
     if (host_buffer && llamafile_has_cuda()) {
@@ -2568,7 +2572,9 @@ static ggml_backend_buffer_type_t llama_default_buffer_type_offload(const llama_
         return ggml_backend_rpc_buffer_type(endpoint);
     }
 #endif
-    if (llamafile_has_metal())
+    if (ggml_backend_bf16_buffer_type())
+        buft = ggml_backend_bf16_buffer_type();
+    else if (llamafile_has_metal())
         buft = ggml_backend_metal_buffer_type();
     else if (llamafile_has_cuda())
         buft = ggml_backend_cuda_buffer_type(gpu);
@@ -7432,6 +7438,12 @@ static bool llm_load_tensors(
     size_t n_max_backend_buffer = ctx_map.size() * ml.files.size();
     model.bufs.reserve(n_max_backend_buffer);
 
+    if (ggml_backend_bf16_buffer_type()) {
+        // pas possible d'utiliser mmap avec ce type de buffer...
+        //  => on a besoin de reformater les tenseurs et donc d'appler les set_tensor
+        // TODO ajouter sur le buffer une methode "is_mmap_allowed()"
+        use_mmap_buffer = false;
+    }
     for (auto & it : ctx_map) {
         ggml_backend_buffer_type_t buft = it.first;
         ggml_context * ctx              = it.second;
@@ -14746,6 +14758,7 @@ static int llama_decode_internal(
     }
 
     for (uint32_t cur_token = 0; cur_token < n_tokens_all; cur_token += n_ubatch) {
+        int64_t t_start_us = ggml_time_us();
         const uint32_t n_tokens = std::min(n_ubatch, n_tokens_all - cur_token);
         llama_batch u_batch = {
             /* .n_tokens   = */ (int32_t) n_tokens,
@@ -14863,7 +14876,7 @@ static int llama_decode_internal(
             embd = nullptr; // do not extract embeddings when not needed
             GGML_ASSERT(strcmp(res->name, "result_output") == 0 && "missing result_output tensor");
         }
-        // LLAMA_LOG_INFO("graph build time: %.3f ms (%d nodes, %d leafs)\n", (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
+        //LLAMA_LOG_INFO("graph build time: %.3f ms (%d nodes, %d leafs)\n", (ggml_time_us() - t_start_us)/1000.0, gf->n_nodes, gf->n_leafs);
 
         ggml_backend_sched_alloc_graph(lctx.sched, gf);
 

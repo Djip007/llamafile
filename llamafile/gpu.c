@@ -34,6 +34,8 @@ const char *llamafile_describe_gpu(void) {
         return "apple";
     case LLAMAFILE_GPU_NVIDIA:
         return "nvidia";
+    case LLAMAFILE_APU_AMD:
+        return "apu";
     case LLAMAFILE_GPU_DISABLE:
         return "disabled";
     default:
@@ -99,6 +101,8 @@ int llamafile_gpu_parse(const char *s) {
         return LLAMAFILE_GPU_AUTO;
     if (!strcasecmp(s, "amd"))
         return LLAMAFILE_GPU_AMD;
+    if (!strcasecmp(s, "apu")) // zen4 / bf16 / rdna3 (et +???)
+        return LLAMAFILE_APU_AMD;
     if (!strcasecmp(s, "apple"))
         return LLAMAFILE_GPU_APPLE;
     if (!strcasecmp(s, "nvidia"))

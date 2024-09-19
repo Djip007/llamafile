@@ -29,7 +29,6 @@ extern int FLAG_batch;
 extern int FLAG_ctx;
 extern int FLAG_flash_attn;
 extern int FLAG_gpu;
-extern int FLAG_gpu;
 extern int FLAG_http_ibuf_size;
 extern int FLAG_http_obuf_size;
 extern int FLAG_keepalive;
@@ -80,11 +79,13 @@ void llamafile_get_flags(int, char **);
 #define LLAMAFILE_GPU_AMD 1
 #define LLAMAFILE_GPU_APPLE 2
 #define LLAMAFILE_GPU_NVIDIA 4
+#define LLAMAFILE_APU_AMD 8   // voir a trouver un "vrai" nom
 bool llamafile_has_gpu(void);
 int llamafile_gpu_layers(int);
 bool llamafile_has_cuda(void);
 bool llamafile_has_metal(void);
 bool llamafile_has_amd_gpu(void);
+bool llamafile_has_apu_amd(void);
 int llamafile_gpu_parse(const char *);
 const char *llamafile_describe_gpu(void);
 
