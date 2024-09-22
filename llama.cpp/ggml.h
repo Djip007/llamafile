@@ -572,9 +572,11 @@ extern "C" {
     };
 
     enum ggml_tensor_flag {
-        GGML_TENSOR_FLAG_INPUT  = 1,
-        GGML_TENSOR_FLAG_OUTPUT = 2,
-        GGML_TENSOR_FLAG_PARAM  = 4,
+        GGML_TENSOR_FLAG_INPUT   = 1,
+        GGML_TENSOR_FLAG_OUTPUT  = 2,
+        GGML_TENSOR_FLAG_PARAM   = 4,
+        GGML_TENSOR_FLAG_WEIGHTS = 8, // ou CONST / ...
+        // GGML_TENSOR_FLAG_COMPUTE = 16,
     };
 
     // ggml object
@@ -591,10 +593,18 @@ extern "C" {
 
     static const size_t GGML_OBJECT_SIZE = sizeof(struct ggml_object);
 
+    // OK pour moi c'est mieux ici !!!
+    //enum ggml_tensor_usage {
+    //    GGML_TENSOR_USAGE_ANY = 0,
+    //    GGML_TENSOR_USAGE_WEIGHTS = 1,
+    //    GGML_TENSOR_USAGE_COMPUTE = 2,
+    //};
+
     // n-dimensional tensor
     struct ggml_tensor {
         enum ggml_type         type;
 
+        // enum ggml_tensor_usage usage;
         GGML_DEPRECATED(enum ggml_backend_type backend, "use the buffer type to find the storage location of the tensor");
 
         struct ggml_backend_buffer * buffer;
@@ -626,7 +636,7 @@ extern "C" {
 
         void * extra; // extra things e.g. for ggml-cuda.cu
         void * bf16_tensor;  // est reinitialisé si ca n'est pas un poids
-        void * bf16_op;      // est reinitialisé pour tous les non op
+        void * bf16_op;      // est reinitialisé pour tous les vrai op
         // char padding[8];
     };
 

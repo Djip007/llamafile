@@ -57,7 +57,7 @@ QQ note:
 #include <list>
 
 //------------------------------------------------------------------------------------
-// #define DO_TIMING
+//#define DO_TIMING
 #ifdef DO_TIMING
 #include <ctime>
 struct mesure {
@@ -396,41 +396,96 @@ namespace ggml::bf16 {
 
 // gestion de Matrice (en attandant mieux)
 // template<typename T, int K, int M>  // => stockage par block!
-template<typename T>
+// @ mettre au propre: K<>m M<>n
+template<typename T, size_t K=1, size_t M=1>
 class Matrice {
 public:
     inline auto DIM1() const { return m_m; }
     inline auto DIM2() const { return m_n; }
-    inline auto LD() const { return m_l; }
+    inline auto LD()   const { return m_l; }
 
     const std::size_t m_m;  // m contigue
     const std::size_t m_n;
-    const std::size_t m_l;  // nb elements pour passer a la colonne suivante.
+    const std::size_t m_l;  // nb elements pour passer a la colonne (bloc) suivante.
     T* m_values;  // suivant le format ca peut-etre une copie!
 
-    inline Matrice(T* v, std::size_t n, std::size_t m, std::size_t l): m_n(n), m_m(m), m_l(l), m_values(v) {}
+    inline Matrice(T* v, std::size_t m, std::size_t n, std::size_t l): m_m(m), m_n(n), m_l((K*M==1)?l:m*K*M), m_values(v) {
+        static_assert(K>0);
+        static_assert(M>0);
+    }
 
-    inline Matrice(struct ggml_tensor * t): m_m(t->ne[0]), m_n(t->ne[1]), m_l(t->nb[1]/t->nb[0]), m_values((T*)(t->data)) {
+    // un buffer avec le meme format que le tenseur
+    inline Matrice(const void* data, struct ggml_tensor * t):
+            m_m(t->ne[0]), m_n(t->ne[1]),
+            m_l((t->nb[1]/t->nb[0])),
+            m_values((T*)(data))
+    {
+        static_assert(K==1);
+        static_assert(M==1);
         GGML_ASSERT(t->ne[2]==1);
         GGML_ASSERT(t->ne[3]==1);
     }
 
+    //inline Matrice(struct ggml_tensor * t): m_m(t->ne[0]), m_n(t->ne[1]), m_l((t->nb[1]/t->nb[0])*K*M), m_values((T*)(t->data)) {
+    inline Matrice(struct ggml_tensor * t):
+            m_m(t->ne[0]), m_n(t->ne[1]),
+            m_l((K*M==1)?(t->nb[1]/t->nb[0]):t->ne[0]*M),
+            m_values((T*)(t->data))
+    {
+        static_assert(K>0);
+        static_assert(M>0);
+        GGML_ASSERT(t->ne[2]==1);
+        GGML_ASSERT(t->ne[3]==1);
+        //GGML_ASSERT((sizeof(T)*m_m*m_n)<=ggml_nbytes(t));
+        // std::cout <<" Matrice: "<< ":" <<m_m<<"/"<<m_n<<"/"<<m_l <<" | "<< t << std::endl;
+    }
+
     inline Matrice(struct ggml_tensor * t, std::size_t i, std::size_t j): m_m(t->ne[0]), m_n(t->ne[1]), m_l(t->nb[1]/t->nb[0]) { //, m_values((T*)add_byte(t->data,)) {
+        // pas utilisable pour les empilements de matrice non native!
+        static_assert(K==1);
+        static_assert(M==1);
         m_values = (T*) add_byte(t->data, i*t->nb[2]+j*t->nb[3]);
     }
 
     inline T& operator()(size_t i, size_t j) {
-        return m_values[j*m_l+i];
+        const auto i0 = i%K; const auto i1 = i/K;
+        const auto j0 = j%M; const auto j1 = j/M;
+        return m_values[j1*m_l+j0*K+i1*K*M+i0];
+        // return m_values[j*m_l+i];
     }
     inline const T operator()(size_t i, size_t j) const {
-        return m_values[j*m_l+i];
+        const auto i0 = i%K; const auto i1 = i/K;
+        const auto j0 = j%M; const auto j1 = j/M;
+        return m_values[j1*m_l+j0*K+i1*K*M+i0];
+        // return m_values[j*m_l+i];
     }
 
     inline T* addr(size_t i, size_t j) {
-        return m_values+j*m_l+i;
+        if constexpr(K>1 || M>1) {
+            // pas une bonne idée de taper en dehors d'un bloc complet,
+            //GGML_ASSERT(i<m_m);
+            //GGML_ASSERT(j<m_n);
+            //GGML_ASSERT(j%M==0);
+            //GGML_ASSERT(i%K==0);
+            //GGML_ASSERT(j%M==0);
+            const auto i1 = i/K;
+            const auto j1 = j/M;
+            return m_values+j1*m_l+i1*K*M;
+        } else {
+            return m_values+j*m_l+i; // [j1*m_l+j0*K+i1*K*M+i0]
+        }
     }
     inline const T* addr(size_t i, size_t j) const {
-        return m_values+j*m_l+i;
+        if constexpr(K>1 || M>1) {
+            // pas une bonne idée de taper en dehors d'un bloc complet,
+            //GGML_ASSERT(i%K==0);
+            //GGML_ASSERT(j%M==0);
+            const auto i1 = i/K;
+            const auto j1 = j/M;
+            return m_values+j1*m_l+i1*K*M;
+        } else {
+            return m_values+j*m_l+i; // [j1*m_l+j0*K+i1*K*M+i0]
+        }
     }
 
     static bool valid(const struct ggml_tensor * t) {
@@ -453,14 +508,14 @@ public:
 //------------------------------------------------------------------------------------
 // => celui de JART!
 // cas K%32 = 0
-// - fp32:
+// - fp32: => bf16_x32
 static inline auto load(const fp32_t *X) {
     auto x1 = _mm512_loadu_ps(X);
     auto x2 = _mm512_loadu_ps(X+16);
     return _mm512_cvtne2ps_pbh(x2,x1);
 }
 
-// - fp16:
+// - fp16: => bf16_x32
 static inline auto load(const bf16_t *X) {
     return (__m512bh) _mm512_loadu_epi16(X);
 }
@@ -585,7 +640,7 @@ static inline void store(bf16_t *pX, const __m512bh& x) {
 static inline void store(fp32_t *pX, const __m512& x) {
     _mm512_storeu_ps(pX, x);
 }
-
+/*
 // write C after last reduction
 template<typename... T>
 static inline void store(fp32_t *pX, T&&... x) {
@@ -593,7 +648,7 @@ static inline void store(fp32_t *pX, T&&... x) {
     auto pack = hadd(std::forward<T>(x)...);
     _mm512_mask_storeu_ps(pX, _m, pack);
 }
-
+*/
 // p'etre un "masque" A(quantisé>bf16)/B(fp32>bf16)
 enum class ACTION {
     NONE,
@@ -723,6 +778,209 @@ static inline void sgemm_512_bloc(const Matrice<TA>& A, const Matrice<TB>& B, Ma
     }
 }
 
+//----------------------------------------------
+// cas block de BF16:
+namespace ggml::bf16::op_matmul {
+    class bf16_2x16: public ggml::bf16::op {
+        // OK c'est prometeur on sature la memoire avec 2 threads!
+        // Pour aller plus vite il va faloir gerer les caches!
+        //  - A => en L2
+        //  - B => en L1
+        // => il fait gerer des K1
+        // => parcourir M2 bloc
+        // => parcourir tous les B
+        // => passer a la suite...
+        //   - K0 : dot2       => 2
+        //   - M0 : simd       => 16
+        //   - N0 : registres  => 16?
+        //   - K1 : B en L1 (+conv bf16)  => 32k: 1024/2=512
+        //   - M1 : A en L2               => 1Mo: 32 (bf16) / 64 (fp8) (512xNbThread)
+        //   - N1 : B en L3 (fp32) / C en L3 (?)  => 16 Mo  => 256 (4096 fp32)???
+        //   - K  : tous les K
+        //   - M  : tous les M  \ dispache par coeurs
+        //   - N  : tous les N  /
+        // Note: reduction sur K ...
+        //  https://passlab.github.io/Examples/contents/Chap_data_environment/9_Reduction.html#user-defined-reduction
+        void exec(struct ggml_tensor *op) const override {
+#ifdef DO_TIMING
+            mesure time; time.start();
+#endif
+            // normalement ici les type sont deja controlé
+            const Matrice<bf16_t,2,16> A(op->src[0]);
+            const Matrice<fp32_t>      B(op->src[1]);
+            Matrice<fp32_t>            C(op);
+            mul_mat(A, B, C);
+#ifdef DO_TIMING
+            auto dt = time.end();
+            std::cout << " bf16_2x16> " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name << " => "
+                    << dt*1000000 << " us / "
+                    << (1e-9*2*op->ne[0]*op->ne[1]*op->src[1]->ne[0])/dt << " GFlops/s"
+                    << std::endl;
+#endif
+        }
+
+        // voir si on fait plusieurs cas 16xN  32xN...
+        //bool B_is_allowed(const struct ggml_tensor *B) override {
+        //    if (B->ne[1]>6) return false;
+        //    return ggml_bf16_op_matmul::B_is_allowed(B);
+        //}
+        bool A_is_allowed(const struct ggml_tensor *A) override {
+            auto a = ggml::bf16::tensor::get(A);
+            if (!a) return false; // voir si/quand ca peu arriver
+            // on sais deja:
+            if (a->type == ggml::bf16::TYPE::BF16_2x16) return true;
+            return false;
+        }
+
+        // le bloc de bas niveau
+        // TODO: gerer des Tensor / BlocTensor et pas des Type* !!!
+        // ca evite de passer ld[a,b,c] et permet de gerer correctement les different bloc!
+        //  => K0/M0 sont alors fixé pour A!
+        //  et gerer les conversions / acces vecteurs ...
+        //  load<bf16_32> / load<bf16_2x16> / load<bf16_t,32>...
+        // ??? les BlocTensor n'ont p'etre pas trop d'acces possible load_v/load_s ...
+        //  ou load(out, i, j);
+        // TODO: changer M1 => "M1/M0"
+        template<size_t M1, size_t N0, typename TA, typename TB, typename TC>
+        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2) {
+            // lda: comment passer de A[k,i] => A[k,i+M1]
+            // ldb: comment passer de B[k,j] => B[k,j+1]
+            // ldc: comment passer de C[i,j] => C[i,j+1]
+            constexpr int K0 =  2; //
+            constexpr int M0 = 16; // 16 FP32 => 1 AVX512!
+            constexpr int K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
+            static_assert(M1>0);
+            static_assert(N0>0);
+            static_assert(M1%M0 == 0);
+            GGML_ASSERT(K2%K1 == 0);
+
+            // K%32 == 0!!
+            // A[?,K+:lda]
+            // B[?,K+:ldb]
+            // C[?,ldc]
+            __m512   C[M1/M0][N0];    // m512   == fp32[M0]
+            __m512bh A[K1/K0][M1/M0]; // m512bh == bf16[M0][K0]
+
+            //std::cout << "  - 0" << std::endl;
+#pragma GCC unroll N0
+            for(size_t j=0; j<N0; j++) {
+//#pragma GCC unroll (M1/M0)
+#pragma GCC unroll M1
+                for(size_t i=0; i<(M1/M0); i++) {
+                    C[i][j] = _mm512_setzero_ps();
+                }
+            }
+
+            //std::cout << "  - 1" << std::endl;
+            for (size_t k2=0; k2<K2; k2+=K1) { // de 8 en 8 ...
+                //std::cout << "  - 10" << std::endl;
+                // chargement de A
+#pragma GCC unroll K1
+                for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..3]
+#pragma GCC unroll M1
+                    for (size_t i1 = 0; i1<M1/M0; ++i1) {  // [1]
+                        A[k1][i1] = load(pA + i1*lda + k2*M0 + k1*M0*K0); // lda == K2*M0 ...
+                    }
+                }
+                //std::cout << "  - 11" << std::endl;
+#pragma GCC unroll N0
+                for (size_t j=0; j<N0; ++j) {  // [0..~16]
+                    // on charge K1 valeur de B
+                    __m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
+
+#pragma GCC unroll K1
+                    for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..4]
+                        auto _B = _mm512_broadcastd_2pbh(B);
+                        B = _mm_shiftl_2pbh(B);
+#pragma GCC unroll M1
+                        for (size_t i1=0; i1<M1/M0; ++i1) {  // [1]
+                            C[i1][j] = madd(A[k1][i1], _B, C[i1][j]);
+                        }
+                    }
+                }
+            }
+
+            // ecriture de C...
+            //std::cout << "  - 2" << std::endl;
+#pragma GCC unroll N0
+            for(size_t j=0; j<N0; j++) {
+//#pragma GCC unroll (M1/M0)
+#pragma GCC unroll M1
+                for (size_t i1=0; i1<M1/M0; ++i1) {
+                    store(pC+j*ldc+i1*M0, C[i1][j]);
+                }
+            }
+        }
+
+        template<size_t M1, size_t N0, size_t M0, size_t K0>
+        inline void sgemm_bloc(const Matrice<bf16_t,K0,M0>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C, size_t i, size_t j, size_t N, size_t K) const {
+            static_assert(N0<=16);
+            switch (N) {
+                case 16: gemm<M1*M0,16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 15: gemm<M1*M0,15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 14: gemm<M1*M0,14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 13: gemm<M1*M0,13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 12: gemm<M1*M0,12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 11: gemm<M1*M0,11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 10: gemm<M1*M0,10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  9: gemm<M1*M0, 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  8: gemm<M1*M0, 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  7: gemm<M1*M0, 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  6: gemm<M1*M0, 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  5: gemm<M1*M0, 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  4: gemm<M1*M0, 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  3: gemm<M1*M0, 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  2: gemm<M1*M0, 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case  1: gemm<M1*M0, 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                default: break;
+            }
+            // std::cout << "    N="<<N<<"/"<<N0<< std::endl;
+            /*
+            if (N==N0) {
+                // calcule
+                gemm<M1*M0,N0>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K);
+                return;
+            }
+            if constexpr (N0>1) { // arret de la recursion
+                sgemm_bloc<M1,N0-1,M0,K0>(A, B, C, i, j, N, K);
+            }
+            */
+        }
+
+        template<size_t K0, size_t M0>
+        void mul_mat(const Matrice<bf16_t,K0,M0>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const {
+            static_assert(K0==2);
+            static_assert(M0==16);
+            const auto m = C.DIM1(); // == A.DIM2()
+            const auto n = C.DIM2(); // == B.DIM2()
+            const auto k = A.DIM1(); // == B.DIM1()
+            // K0 = 2; M0 = 16; !!!
+            constexpr size_t N0 = 16;
+            constexpr size_t M1 =  1;
+            constexpr size_t M2 =  2;
+
+            //#pragma omp parallel for private(B_cache) schedule(guided)
+            // bool premier = true;
+            //#pragma omp parallel for private(premier) private(B_cache) schedule(guided)
+#pragma omp parallel for schedule(guided)
+            for (size_t i=0; i<m; i+=M2*M1*M0) {
+                for (size_t j=0; j<n; j+=N0) {
+                    const auto N = std::min(n-j,N0);
+                    // TODO: premier => mettre B<bf16> en cache
+#pragma GCC unroll 8
+                    for (size_t i2=0; i2<M2*M1*M0; i2+=M1*M0) {
+                        sgemm_bloc<M1,N0,M0,K0>(A, B, C, i+i2, j, N, k);
+                    }
+                }
+            }
+        }
+
+    };
+
+}
+
+//----------------------------------------------
+// cas sans bloc de BF16:
 class ggml_bf16_op_matmul : public ggml::bf16::op {
 public:
     void exec(struct ggml_tensor *op) const override {
@@ -749,7 +1007,6 @@ public:
             }}
 #ifdef DO_TIMING
         auto dt = time.end();
-        //printf("%g us %s %g gigaflops\n", (dt/ITERATIONS)*1000000, #x, (1e-9*2*m*n*k*ITERATIONS)/dt);
         std::cout << " > " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name << " => "
                 << dt*1000000 << " us / "
                 << (1e-9*2*src1->ne[3]*src1->ne[2]*op->ne[0]*op->ne[1]*src1->ne[0])/dt << " GFlops/s"
@@ -799,104 +1056,6 @@ public:
     }
 };
 
-//----------------------------------------------
-// cas block de BF16:
-namespace ggml::bf16::op_matmul {
-    class bf16_2x16: public ggml::bf16::op {
-
-        void exec(struct ggml_tensor *op) const override {
-            // TODO
-            auto a = ggml::bf16::tensor::get(op->src[0]);
-            if (a->type != ggml::bf16::TYPE::BF16_2x16) {
-                // => conversion ??? ou doit daja l'etre!!!
-            }
-        }
-
-        // voir si on fait plusieurs cas 16xN  32xN...
-        //bool B_is_allowed(const struct ggml_tensor *B) override {
-        //    if (B->ne[1]>6) return false;
-        //    return ggml_bf16_op_matmul::B_is_allowed(B);
-        //}
-        bool A_is_allowed(const struct ggml_tensor *A) override {
-            auto a = ggml::bf16::tensor::get(A);
-            if (!a) return false; // voir si/quand ca peu arriver
-            // on sais deja:
-            if (a->type == ggml::bf16::TYPE::BF16_2x16) return true;
-            return false;
-        }
-
-        // le bloc de bas niveau
-        // TODO: gerer des Tensor / BlocTensor et pas des Type* !!!
-        // ca evite de passer ld[a,b,c] et permet de gerer correctement les different bloc!
-        //  => K0/M0 sont alors fixé pour A!
-        //  et gerer les conversions / acces vecteurs ...
-        //  load<bf16_32> / load<bf16_2x16> / load<bf16_t,32>...
-        // ??? les BlocTensor n'ont p'etre pas trop d'acces possible load_v/load_s ...
-        //  ou load(out, i, j);
-        template<size_t M1, size_t N0, typename TA, typename TB, typename TC>
-        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2) {
-            constexpr int K0 =  2; //
-            constexpr int M0 = 16; // 16 FP32 => 1 AVX512!
-            constexpr int K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
-            static_assert(M1>0);
-            static_assert(N0>0);
-            static_assert(M1%M0 == 0);
-
-            GGML_ASSERT(K2%K1 == 0);
-
-            // K%32 == 0!!
-            // A[?,K+:lda]
-            // B[?,K+:ldb]
-            // C[?,ldc]
-            __m512   C[M1/M0][N0];    // m512   == fp32[M0]
-            __m512bh A[K1/K0][M1/M0]; // m512bh == bf16[M0][K0]
-
-#pragma GCC unroll N0
-            for(size_t j=0; j<N0; j++) {
-#pragma GCC unroll (M1/M0)
-                for(size_t i=0; i<(M1/M0); i++) {
-                    C[i][j] = _mm512_setzero_ps();
-                }
-            }
-
-            for (size_t k2=0; k2<K2; k2+=K1) {
-                // chargement de A
-                for (size_t k1=0; k1<K1/K0; ++k1) {
-                    for (size_t i1 = 0; i1<M1/M0; ++i1) {
-                        //A[k1][i1] = load(pA+M1*K0*k1 + i1*M0*K0); // non sinon pas le meme format que bf16_2x16 ! (bf16_2x32...)
-                        A[k1][i1] = load(pA+M1*K0*k1 + i1*M0*lda); // ??? K2 = lda (ou K2*M0 ?)
-                        //A[k1][i1] = pA.load_32(M1*K0*k1, i1*M0);  // mieux ? mais faire un control tout n'est pas possible
-                        //A[k1][i1] = pA.load_32(M1*k1, i1);
-                    }
-                }
-                for (size_t j=0; j<N0; ++j) {
-                    // on charge K1 valeur de B
-                    __m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
-
-                    for (size_t k1=0; k1<K1/K0; ++k1) {
-                        auto _B = _mm512_broadcastd_2pbh(B);
-                        B = _mm_shiftl_2pbh(B);
-                        for (size_t i1=0; i1<M1/M0; ++i1) {
-                            C[i1][j] = madd(A[k1][i1], _B, C[i1][j]);
-                        }
-                    }
-                }
-            }
-
-            // ecriture de C...
-#pragma GCC unroll N0
-            for(size_t j=0; j<N0; j++) {
-#pragma GCC unroll (M1/M0)
-                for (size_t i1=0; i1<M1/M0; ++i1) {
-                    store(pC+i1*M0+j*ldc, C[i1][j]);
-                }
-            }
-        }
-    };
-
-}
-
-
 class ggml_bf16_op_matmul_2 : public ggml_bf16_op_matmul {
 public:
     // la derniere chance!
@@ -934,13 +1093,11 @@ public:
     }
 };
 
-
-////////////////////////////////////////
-// l'init du backend: [TODO: @ metre sous namespace!]
-
+//////////////////////////////////////////////////////////////////////////////////
+// l'init du backend:
 //------------------------------------------------------------------------------------
 // le context definissant le backend
-// - ??? comment on gere les tenseurs du backend?
+// - les tenseur??? comment on gere les tenseurs du backend?
 namespace ggml::backend::bf16::tensor {
 }
 // - le buffer
@@ -959,38 +1116,63 @@ namespace ggml::backend::bf16::buffer {
         inline std::size_t get_size() {
             return m_size;
         }
+        // Note[JPP]: voir si on l'initialise dans l'init du backend...
+        // les tenseurs qui sont converti en FP8 / Q8 ?
+        // - https://huggingface.co/neuralmagic/Mistral-Nemo-Instruct-2407-FP8/tree/main?show_file_info=model-00003-of-00003.safetensors
+        // - https://huggingface.co/lmstudio-community/Mistral-Nemo-Instruct-2407-GGUF/tree/main?show_file_info=Mistral-Nemo-Instruct-2407-Q8_0.gguf
+        static constexpr std::list<std::string> LIST_BF16_2x16() { return {
+                "fn_down.weight",
+                "fn_gate.weight",
+                "fn_up.weight",
+                "ttn_k.weight",
+                "ttn_q.weight",
+                "ttn_v.weight",
+                "ttn_output.weight",
+        };}
+        /*
+blk.0.ffn_down.weight   [14 336, 5 120]     Q8_0
+blk.0.ffn_gate.weight   [5 120, 14 336]     Q8_0
+blk.0.ffn_up.weight     [5 120, 14 336]     Q8_0
+blk.0.attn_k.weight     [5 120, 1 024]  Q8_0
+blk.0.attn_q.weight     [5 120, 4 096]  Q8_0
+blk.0.attn_v.weight     [5 120, 1 024]  Q8_0
+blk.0.attn_output.weight    [4 096, 5 120]  Q8_0
+blk.0.ffn_norm.weight   [5 120]     F32
+blk.0.attn_norm.weight  [5 120]     F32
+         */
         inline ggml::bf16::tensor* get_tensor_type(ggml_tensor * tensor) {
             if (ggml_is_transposed(tensor)) return nullptr;
             ggml::bf16::tensor* t = nullptr;
-            if (tensor->buffer && (tensor->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
-                // TODO: les poids ... peuvent supporter plus de transformations que d'autre...
-            }
-            switch (tensor->type) {
-            case GGML_TYPE_BF16 :
-                // - est-ce un poid?
-                // if (tensor->buffer && (tensor->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
-                //   pour les poids on se permet de convertir / packer le tenseur
+            if ( (tensor->flags&GGML_TENSOR_FLAG_WEIGHTS) == GGML_TENSOR_FLAG_WEIGHTS) {
+                const std::string name = ggml_get_name(tensor);
+                // les poids ... ils peuvent supporter plus de transformations!
                 //   la transformation ser faite par le set_tensor
                 //   ceux qui sont eligible sont restreint a ceux qui servent au matmul!
-                //ggml::bf16::tensor::set(tensor, &ggml::bf16::tensor_bf16_t);
+                if (tensor->type == GGML_TYPE_BF16) {
+                    // K0=2 / M0=16:
+                    if ((tensor->ne[0] % 2 == 0) && (tensor->ne[1] % 16 == 0) && (tensor->ne[2] == 1) && (tensor->ne[3] == 1)) {
+                        for (auto patern: LIST_BF16_2x16()) {
+                            if (name.find(patern) != std::string::npos) {
+                                //std::cout << "transforme<bf16_2x16>: " <<tensor->name<< tensor << std::endl;
+                                return &ggml::bf16::tensor_bf16_2x16_t;
+                            }
+                        }
+                    }
+                }
+                //std::cout << "transforme<bf16_2x16> non supporté: " <<tensor->op<<"<"<<tensor->name<<"> "<< tensor << std::endl;
+            }
+            // OK pas de transformation possible => les format "natif"
+            switch (tensor->type) {
+            case GGML_TYPE_BF16 :
                 if (tensor->ne[0] % 32 == 0) {
                     t=&ggml::bf16::tensor_bf16_32x1_t;
                 }
-            /* TODO: les autres cas possible && "activé"
-            if (a->type == ggml::bf16::TYPE::NON_SUPPORTE) return false;
-            if (a->type == ggml::bf16::TYPE::BF16
-                    && A->ne[0] %  2 == 0  // K%2 == 0
-                    && A->ne[1] % 16 == 0  // M%16 == 0
-            )
-            {
-                // OK on va utiliser des bloc de A[16,2] (K0=2, M0=16)
-                ggml::bf16::tensor::set(A, &ggml::bf16::tensor_bf16_2x16_t);
-                return true;
-            }
-            */
+                // std::cout << "Tenseur<"<<tensor->name<<">: bf16_32x1" << std::endl;
                 break;
             case GGML_TYPE_F32 :
                 //  il faut verifier en fonction de type de produit le format a utiliser...
+                // + tensor_fp32_32x1_t
+                // + tensor_fp32_8x1_t
                 t=&ggml::bf16::tensor_fp32_t;
                 break;
             }
@@ -1015,11 +1197,28 @@ namespace ggml::backend::bf16::buffer {
                 std::cout << "re-init_tensor:" <<tensor->op<< tensor << std::endl;
             }
         }
-        inline void         set_tensor(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
-            // TODO: @ revoir ca va dependre du type dans le backend!!!
-            //  et normalement on sais deja en fct des 2 types ce qu'il y a a faire..
-            if (tensor->buffer && (tensor->buffer->usage != GGML_BACKEND_BUFFER_USAGE_WEIGHTS)) {
-                //std::cout << "set_tensor(non-weight):" <<tensor->op<< tensor << std::endl;
+        // inline void load_tensor(struct ggml_tensor * tensor, File, offset);
+        inline void set_tensor(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+            // TODO: traiter tous les types du backend!!!
+            if (ggml::bf16::tensor::get(tensor)->type == ggml::bf16::TYPE::BF16_2x16) {
+                // if (tensor->type == GGML_TYPE_BF16) {
+                // le seul cas pour l'instant supporté: une matrice de BF16 affecté en 1 bloc
+                // std::cout << "set_tensor<"<<tensor->name<<">:" << offset << ":" << size <<"/"<<ggml_nbytes(tensor)<< std::endl;
+                GGML_ASSERT(offset == 0);
+                GGML_ASSERT(size == ggml_nbytes(tensor));
+                GGML_ASSERT(tensor->type == GGML_TYPE_BF16);
+                GGML_ASSERT(tensor->ne[2] == 1);
+                GGML_ASSERT(tensor->ne[3] == 1);
+
+                Matrice<bf16_t,2,16> A(tensor);
+                const Matrice<bf16_t> B(data, tensor);
+                for (int j=0; j<tensor->ne[1]; j++) {
+                    for (int i=0; i<tensor->ne[0]; i++) {
+                        //A(i,j) = *((bf16_t*)data[i*tensor->nb[0]+j*tensor->nb[1]]);
+                        A(i,j) = B(i,j);
+                    }
+                }
+                return;
             }
             memcpy((char *)tensor->data + offset, data, size);
         }
@@ -1080,15 +1279,15 @@ namespace ggml::backend::bf16::buffer {
     }
 
     static struct ggml_backend_buffer_i interface = {
-        /* .get_name        = */ get_name,
-        /* .free_buffer     = */ free_buffer,
-        /* .get_base        = */ get_base,
-        /* .init_tensor     = */ init_tensor,
-        /* .set_tensor      = */ set_tensor,
-        /* .get_tensor      = */ get_tensor,
-        /* .cpy_tensor      = */ cpy_tensor,
-        /* .clear           = */ clear,
-        /* .reset           = */ reset,
+            /* .get_name        = */ get_name,
+            /* .free_buffer     = */ free_buffer,
+            /* .get_base        = */ get_base,
+            /* .init_tensor     = */ init_tensor,
+            /* .set_tensor      = */ set_tensor,
+            /* .get_tensor      = */ get_tensor,
+            /* .cpy_tensor      = */ cpy_tensor,
+            /* .clear           = */ clear,
+            /* .reset           = */ reset,
     };
 }
 
@@ -1106,8 +1305,12 @@ namespace ggml::backend::bf16::buffer_type {
             return (size_t)64*1024*1024*1024; // la taille de la RAM/GGT/VRAM ???
         }
         inline size_t get_alloc_size(const struct ggml_tensor * tensor) {
-            // TODO: gerer suivant les cas:
+            // TODO: gerer les cas reformaté.
+            //  probleme: on n'a pas encore sont "vrai" type!
             //  - poids pour les matmul => en fct du "type" cible
+            //if (ggml::bf16::tensor::get(tensor)->type == ggml::bf16::TYPE::BF16_2x16) {
+            //    return 2*tensor->ne[0]*tensor->ne[1];
+            //}
             return ggml_nbytes(tensor);
         }
         inline bool is_host() {
@@ -1140,9 +1343,6 @@ namespace ggml::backend::bf16::buffer_type {
 
     // ATTENTION il faut surement que ca soit static (pour ggml_backend_bf16_init / et 1 par device pour les buffer_type ???)
     inline ggml_backend_buffer_type_t get() {
-#if 0
-        return ggml_backend_cpu_buffer_type();
-#endif
         // il peut y en avoir 1 par device... mais tjs static!!
         static context ctx;
         static struct ggml_backend_buffer_type ggml_backend_buffer_type = {
@@ -1342,9 +1542,11 @@ namespace ggml::backend::bf16 {
         // ...
 
         ggml::bf16::matmul_ops.clear();
-        // bloc de BF16
-        // TODO: if (backend_config == "bf16_2x16") ggml::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
-        // les JARTs en dernier
+        // bloc de BF16 / FP8
+        // TODO: if (backend_config == "bf16_2x16")
+        ggml::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
+
+        // les "JART" en dernier
         ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1);
         ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2);
     }

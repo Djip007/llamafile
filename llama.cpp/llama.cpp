@@ -1334,43 +1334,59 @@ static llm_arch llm_arch_from_string(const std::string & name) {
 struct LLM_TN {
     LLM_TN(llm_arch arch) : arch(arch) {}
 
+    struct T {
+        T(std::string name): name(name), flag(GGML_TENSOR_FLAG_WEIGHTS) {}
+        T(const char* name): name(name), flag(GGML_TENSOR_FLAG_WEIGHTS) {}
+        const std::string name;
+        const ggml_tensor_flag flag; // flags a ajouter au tenseur!
+
+        const char* c_str() { return name.c_str(); }
+    };
+
     llm_arch arch;
 
-    std::string operator()(llm_tensor tensor) const {
+    T operator()(llm_tensor tensor) const {
         if (LLM_TENSOR_NAMES.at(arch).find(tensor) == LLM_TENSOR_NAMES.at(arch).end()) {
             return "__missing__";
         }
         return LLM_TENSOR_NAMES.at(arch).at(tensor);
     }
 
-    std::string operator()(llm_tensor tensor, const std::string & suffix) const {
+    T operator()(llm_tensor tensor, const std::string & suffix) const {
         if (LLM_TENSOR_NAMES.at(arch).find(tensor) == LLM_TENSOR_NAMES.at(arch).end()) {
             return "__missing__";
         }
         return LLM_TENSOR_NAMES.at(arch).at(tensor) + "." + suffix;
     }
 
-    std::string operator()(llm_tensor tensor, int bid) const {
+    T operator()(llm_tensor tensor, int bid) const {
         if (LLM_TENSOR_NAMES.at(arch).find(tensor) == LLM_TENSOR_NAMES.at(arch).end()) {
             return "__missing__";
         }
         return ::format(LLM_TENSOR_NAMES.at(arch).at(tensor).c_str(), bid);
     }
 
-    std::string operator()(llm_tensor tensor, const std::string & suffix, int bid) const {
+    T operator()(llm_tensor tensor, const std::string & suffix, int bid) const {
         if (LLM_TENSOR_NAMES.at(arch).find(tensor) == LLM_TENSOR_NAMES.at(arch).end()) {
             return "__missing__";
         }
         return ::format(LLM_TENSOR_NAMES.at(arch).at(tensor).c_str(), bid) + "." + suffix;
     }
 
-    std::string operator()(llm_tensor tensor, const std::string & suffix, int bid, int xid) const {
+    T operator()(llm_tensor tensor, const std::string & suffix, int bid, int xid) const {
         if (LLM_TENSOR_NAMES.at(arch).find(tensor) == LLM_TENSOR_NAMES.at(arch).end()) {
             return "__missing__";
         }
         return ::format(LLM_TENSOR_NAMES.at(arch).at(tensor).c_str(), bid, xid) + "." + suffix;
     }
 };
+
+bool operator==(const std::string& a, const LLM_TN::T& b) {
+    return (a==b.name);
+}
+bool operator==(const LLM_TN::T& a, const std::string& b) {
+    return (a.name==b);
+}
 
 //
 // gguf helpers
@@ -3875,6 +3891,13 @@ struct llama_model_loader {
         return create_tensor_for(ctx, cur, flags & TENSOR_DUPLICATED);
     }
 
+    // un teneur avec un peu de config.
+    struct ggml_tensor * create_tensor(struct ggml_context * ctx, const LLM_TN::T & t, const std::vector<int64_t> & ne, int flags = 0) {
+        auto res = create_tensor(ctx, t.name, ne, flags);
+        if (res) res->flags |= t.flag;
+        return res;
+    }
+
     struct ggml_tensor * create_tensor_as_view(struct ggml_context * ctx, struct ggml_tensor * base, const std::string & name, const std::vector<int64_t> & ne, size_t offset, bool required = true) {
         const struct ggml_tensor * cur = check_tensor_dims(name, ne, required);
 
@@ -3901,6 +3924,12 @@ struct llama_model_loader {
         n_created++;
 
         return tensor;
+    }
+
+    struct ggml_tensor * create_tensor_as_view(struct ggml_context * ctx, struct ggml_tensor * base, const LLM_TN::T & t, const std::vector<int64_t> & ne, size_t offset, bool required = true) {
+        auto res = create_tensor_as_view(ctx, base, t.name, ne, offset, required);
+        if (res) res->flags |= t.flag;
+        return res;
     }
 
     void done_getting_tensors() const {
@@ -7425,18 +7454,28 @@ static bool llm_load_tensors(
         }
     }
 
+    LLAMA_LOG_INFO("%s: model configured\n", __func__);
+
     ml.done_getting_tensors();
+
+    LLAMA_LOG_INFO("%s: 1\n", __func__);
 
     ml.init_mappings(true, use_mlock ? &model.mlock_mmaps : nullptr);
     model.mappings.reserve(ml.mappings.size());
+
+    LLAMA_LOG_INFO("%s: 2\n", __func__);
 
     // create the backend buffers
     std::vector<std::pair<ggml_context *, llama_buf_map>> ctx_bufs;
     ctx_bufs.reserve(ctx_map.size());
 
+    LLAMA_LOG_INFO("%s: 3\n", __func__);
+
     // Ensure we have enough capacity for the maximum backend buffer we will potentially create
     size_t n_max_backend_buffer = ctx_map.size() * ml.files.size();
     model.bufs.reserve(n_max_backend_buffer);
+
+    LLAMA_LOG_INFO("%s: 4\n", __func__);
 
     if (ggml_backend_bf16_buffer_type()) {
         // pas possible d'utiliser mmap avec ce type de buffer...
@@ -7444,6 +7483,9 @@ static bool llm_load_tensors(
         // TODO ajouter sur le buffer une methode "is_mmap_allowed()"
         use_mmap_buffer = false;
     }
+
+    LLAMA_LOG_INFO("%s: 5\n", __func__);
+
     for (auto & it : ctx_map) {
         ggml_backend_buffer_type_t buft = it.first;
         ggml_context * ctx              = it.second;
@@ -7517,6 +7559,7 @@ static bool llm_load_tensors(
             throw std::runtime_error("failed to allocate buffer");
         }
 
+        // FAUX: ce n'est pas le buffer qui a un usage mais les tenseurs... ??
         for (auto & buf : bufs) {
             // indicate that this buffer contains weights
             // this is used by ggml_backend_sched to improve op scheduling -> ops that use a weight are preferably scheduled to the backend that contains the weight

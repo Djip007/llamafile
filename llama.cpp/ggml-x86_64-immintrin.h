@@ -37,5 +37,5 @@ extern __inline __m128bh
 __attribute__ ((__gnu_inline__, __always_inline__))
 _mm_shiftl_2pbh(__m128bh __A)
 {
-    return (__m128bh) _mm_bslli_si128((__m128i)__A, 4); // 2xbf16 == 8 char!
+    return (__m128bh) _mm_bsrli_si128((__m128i)__A, 4); // 2xbf16 == 4 char!
 }
