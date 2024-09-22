@@ -7454,28 +7454,18 @@ static bool llm_load_tensors(
         }
     }
 
-    LLAMA_LOG_INFO("%s: model configured\n", __func__);
-
     ml.done_getting_tensors();
-
-    LLAMA_LOG_INFO("%s: 1\n", __func__);
 
     ml.init_mappings(true, use_mlock ? &model.mlock_mmaps : nullptr);
     model.mappings.reserve(ml.mappings.size());
-
-    LLAMA_LOG_INFO("%s: 2\n", __func__);
 
     // create the backend buffers
     std::vector<std::pair<ggml_context *, llama_buf_map>> ctx_bufs;
     ctx_bufs.reserve(ctx_map.size());
 
-    LLAMA_LOG_INFO("%s: 3\n", __func__);
-
     // Ensure we have enough capacity for the maximum backend buffer we will potentially create
     size_t n_max_backend_buffer = ctx_map.size() * ml.files.size();
     model.bufs.reserve(n_max_backend_buffer);
-
-    LLAMA_LOG_INFO("%s: 4\n", __func__);
 
     if (ggml_backend_bf16_buffer_type()) {
         // pas possible d'utiliser mmap avec ce type de buffer...
@@ -7483,8 +7473,6 @@ static bool llm_load_tensors(
         // TODO ajouter sur le buffer une methode "is_mmap_allowed()"
         use_mmap_buffer = false;
     }
-
-    LLAMA_LOG_INFO("%s: 5\n", __func__);
 
     for (auto & it : ctx_map) {
         ggml_backend_buffer_type_t buft = it.first;

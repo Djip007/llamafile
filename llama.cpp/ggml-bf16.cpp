@@ -1,4 +1,11 @@
-//#define __x86_64__
+/*
+#define __x86_64__
+#define __SIZE_TYPE__    unsigned int
+namespace std {
+    typedef __SIZE_TYPE__ size_t;
+}
+typedef __SIZE_TYPE__ size_t;
+*/
 /*
 > build:
 make clean
@@ -6,7 +13,7 @@ make -j16
 make -j16 install PREFIX=/home/philou/LLM/usr/
 
 // trace des tenseurs
-GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 1 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:128:1:1/4:20480:2621440:2621440]@f32 => [131072:128:1:1/4:524288:67108864:67108864]@f32)
 TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
@@ -14,28 +21,22 @@ TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:13421772
 
 > run: une fois implementé
 GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-# GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-
-GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
+
+# GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+# GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 # celui de reference (llamafile)
 ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 
  */
 
+// # Trace/debug: voir GGML_SCHED_DEBUG=1
+//     LLAMA_LOG_INFO("%s: model configured\n", __func__);
+
 /*
-QQ note:
- voir ggml_backend_buffer_type_i et creer un buffer...
- - get_alloc_size est appelé avec le tenseur pour recuperer la taille necessaire
- - alloc_buffer => appelé avec une taille a allouer. doit etre configuré si besoin pour le GPU!
- un buffer est "utilisé" pour plusieur tenseur apres!  (cuda n'alloue pas tjs le buffer a ce moment mais dans init_tensor ?
- - get_max_size peut permetre de limiter la taille des buffers allouable (?)
-
-> la suite est dans ggml_backend_buffer_i
-  - init_tensor
-  - set_tensor ...  (a priory offset seulement pour les kv ???)
-
-# Trace/debug: voir GGML_SCHED_DEBUG=1
+TODO:
+ - revoir la facon de configurer les threads OpenMP...
+ -
 
  */
 
@@ -49,73 +50,20 @@ QQ note:
 #include "ggml-x86_64-immintrin.h"
 
 #include <cstdlib>
-#include <cstddef>  // #include <stddef.h>
+#include <cstddef>
 #include <iostream>
 #include <cosmo.h>
 #include <string>
 #include <regex>
 #include <list>
 
-//------------------------------------------------------------------------------------
-//#define DO_TIMING
-#ifdef DO_TIMING
-#include <ctime>
-struct mesure {
-    struct timespec ts_0;
-    void start() {
-        clock_gettime(CLOCK_REALTIME, &ts_0);
-    }
-    double end() {
-        struct timespec ts;
-        clock_gettime(CLOCK_REALTIME, &ts);
-        auto _s  = ts.tv_sec - ts_0.tv_sec;
-        auto _ns = ts.tv_nsec - ts_0.tv_nsec;
-        return ((double) _s) + ((double) _ns)/1.e9;
-    }
-};
-#endif // DO_TIMING
+#include "ggml-bf16-log.inc"
 
+//------------------------------------------------------------------------------------
 // Tools
 // - se deplacer dans un buffer en nombre de byte
 static inline void* add_byte(void* addr, std::size_t nb) {
     return (void*) (((char*)addr)+nb);
-}
-
-// Logs simple sur un flux c++
-static inline std::ostream& operator<<(std::ostream& os, enum ggml_type type) {
-    return os << ggml_type_name(type);
-}
-
-static inline std::ostream& operator<<(std::ostream& os, enum ggml_op type) {
-    return os << ggml_op_name(type);
-}
-
-// log du tenseur destination
-static inline std::ostream& operator<<(std::ostream& os, const struct ggml_tensor * t) {
-    // TODO voir a afficher si c'est un tenseur/OP
-    os <<"["<<t->ne[0];
-    for (int i=1; i<GGML_MAX_DIMS ; i++) {
-        os <<":"<<t->ne[i];
-    }
-    os <<"/"<<t->nb[0];
-    for (int i=1; i<GGML_MAX_DIMS ; i++) {
-        os <<":"<<t->nb[i];
-    }
-    return os <<"]@"<< t->type;
-}
-
-// log des tenseurs sources
-struct log_srcs {
-    log_srcs(const ggml_tensor * t): _t(t){}
-    const ggml_tensor * _t;
-};
-static inline std::ostream& operator<<(std::ostream& os, const struct log_srcs t0) {
-    auto t = t0._t;
-    if (t->src[0]) os<<"s0("<<t->src[0]->name<< (t->src[0]->extra==nullptr?"-":"+") <<")"<<t->src[0];
-    for(int i=1; i<GGML_MAX_SRC; i++) {
-        if (t->src[i]) os<<", s"<<i<<"("<<t->src[i]->name<<")"<<t->src[i];
-    }
-    return os;
 }
 
 // gestion des types pour les templates.
@@ -150,10 +98,9 @@ template<> inline bool is<   fp32_t>(const struct ggml_tensor * t) {return t->ty
 template<> inline bool is<   bf16_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_BF16;}
 template<> inline bool is<f8_E4M3_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_FP8;}
 
-namespace ggml::bf16 {
+namespace ggml::backend::bf16 {
     enum class TYPE {
         // Tags
-        A_CONVERTIR,
         NON_SUPPORTE,
         // les types de base sans block (format d'origine)
         FP32,
@@ -188,140 +135,40 @@ namespace ggml::bf16 {
     })
 #define DECODE_TYPE(val) val.template get<ggml::bf16::TYPE>()
 
-    class type_from_patern {
-        struct elt {
-            const ::std::regex name;
-            const TYPE t;
-        };
-        ::std::list<elt> tab;
-    public:
-        void clear() {
-            tab.clear();
-        }
-        void add(TYPE t, std::string patern){
-            //if (t==TYPE::INVALID)
-            GGML_ASSERT(t!=TYPE::INVALID); // p'etre etre plus gentil!
-            tab.push_back(elt{::std::regex(patern), t});
-        }
-        TYPE operator()(std::string name){ // const struct ggml_tensor * t ?
-            for (auto& e: tab) {
-                if (std::regex_match(name, e.name)) {
-                    return e.t;
-                }
-            }
-            return TYPE::BF16; // quel valeur par defaut? INVALID?
-        }
-    };
-
-    // permet de recupere le type du senseur.
-    static type_from_patern get_type;
-
-    // gestion des types...
-    // TODO ajouter les type composé...
-    template<TYPE T> struct type { using t = void; };
-#define TYPE_OF(T) ggml::bf16::type<ggml::bf16::TYPE::T>::t
-    // le mapping:
-    template<> struct type<::ggml::bf16::TYPE::FP32> { using t = float; };
-
-    template<> struct type<::ggml::bf16::TYPE::BF16>      { using t = ::ggml_bf16_t; };
-    template<> struct type<::ggml::bf16::TYPE::BF16_32x1> { using t = ::ggml_bf16_t; };
-    template<> struct type<::ggml::bf16::TYPE::BF16_8x8>  { using t = ::ggml_bf16_t; };
-    template<> struct type<::ggml::bf16::TYPE::BF16_2x16> { using t = ::ggml_bf16_t; };
-
-    template<> struct type<::ggml::bf16::TYPE::FP8>  { using t = ::ggml_fp8_t; };
-
-    //
-
-
     class tensor {
     public:
         const TYPE type;
-        // float scale = 1;
+        // float scale = 1; // possible que pour les poids... est-ce utils
+        // TODO les tailles des blocs!  M0/N0/M1/N1 ou K0/M0/K1/M1
+        //      "constant" => WEIGHT => changement de type et repack possible!
         tensor(TYPE t) : type(t) {}
         virtual ~tensor(){};
+
+        // les enregistrement:
+        static void SET(struct ggml_tensor *op, tensor* backend) {
+            op->bf16_tensor = backend;
+        }
+        static tensor* GET(const struct ggml_tensor *op) {
+            return (tensor*) op->bf16_tensor;
+        }
         // TODO:
+        // les methodes a implementer.
+        //  is_allowed
+        //  size
+        //  set
+        //
+
         // - voir les methodes d'accé au données.
         // voir quel methodes pour gerer les "possibles"
         // - le "choix" de type est static
         // - les tenseur dynamique sont static
         // - les tenseur constant sont instancé/calculé
 
-        static void set(struct ggml_tensor *op, tensor* backend) {
-            op->bf16_tensor = backend;
-        }
-        static tensor* get(const struct ggml_tensor *op) {
-            return (tensor*) op->bf16_tensor;
-        }
     };
-
-    // TODO: les tenseurs specifique a utiliser...
-    // 2 cas:
-    //  - les tenseurs complet
-    //  - les blocs seuls !!!
-    template<typename TYPE, size_t K0, size_t M0, size_t K1, size_t M1>
-    class bloc /*: public tensor*/ {
-    public:
-        bloc() {
-            static_assert(K0*M0*sizeof(TYPE) == 512/8);
-            // m_values = nullptr;
-        }
-        // acces element simple.
-        TYPE& operator()(size_t i, size_t j) {
-            auto i0 = i%K0;
-            auto i1 = i/K0;
-            auto j0 = j%M0;
-            auto j1 = j/M0;
-            //return m_values[i0+K0*j0+i1*M0*K0+j1*K0*M0*K1];
-            return m_values[j1][i1][j0][i0];
-        }
-        // acces vecteur.
-
-    private:
-        //TYPE* m_values; // stockage [M1][K1][M0][K0] !
-        TYPE m_values[M1][K1][M0][K0]; //
-    };
-
-    // fait comme ca ca impose des (grosse) containte sur K & M
-    template<typename TYPE, size_t M0, size_t N0, size_t M1, size_t N1>
-    class tensor_bloc {
-    public:
-        using bloc_t = bloc<TYPE,M0,N0,M1,N1>;
-
-        // TODO: voir quel autre constructeur sont possible/utils!
-        tensor_bloc(TYPE* data, size_t M, size_t N, size_t ld):
-            M2(M/(M0*M1)),
-            N2(N/(M0*M1))
-        {
-            GGML_ASSERT(M%(M0*M1) == 0);
-            GGML_ASSERT(N%(N0*N1) == 0);
-            m_values = new bloc_t[M2*N2];
-            // il faut recopier data au bon endroit ...
-            for (size_t i=0; i<M; i++) {
-                for (size_t j=0; j<M; j++) {
-                    (*this)(i,j) = data[i,ld*j];
-                }
-            }
-        }
-
-        TYPE& operator()(size_t i, size_t j) {
-            const auto i2 = i/(M0*M1);
-            const auto j2 = j/(N0*N1);
-            const auto ib = i%(M0*M1);
-            const auto jb = j%(N0*N1);
-            //
-            return m_values[i2+j2*M2](ib,jb);
-        }
-
-    private:
-        const size_t M2;
-        const size_t N2;
-        bloc_t* m_values;
-    };
-
 
     // TODO: gere TYPE + TAILLE_BLOC!
     static tensor tensor_non_supporte_t(TYPE::NON_SUPPORTE);
-    static tensor tensor_a_convertir(TYPE::A_CONVERTIR);  // ??? pas forcement utils?
+    // static tensor tensor_a_convertir(TYPE::A_CONVERTIR);  // ??? pas forcement utils?
     static tensor tensor_fp32_t(TYPE::FP32);
     static tensor tensor_bf16_t(TYPE::BF16);
 
@@ -781,7 +628,7 @@ static inline void sgemm_512_bloc(const Matrice<TA>& A, const Matrice<TB>& B, Ma
 //----------------------------------------------
 // cas block de BF16:
 namespace ggml::bf16::op_matmul {
-    class bf16_2x16: public ggml::bf16::op {
+    class bf16_2x16: public ggml::backend::bf16::op {
         // OK c'est prometeur on sature la memoire avec 2 threads!
         // Pour aller plus vite il va faloir gerer les caches!
         //  - A => en L2
@@ -825,10 +672,19 @@ namespace ggml::bf16::op_matmul {
         //    return ggml_bf16_op_matmul::B_is_allowed(B);
         //}
         bool A_is_allowed(const struct ggml_tensor *A) override {
-            auto a = ggml::bf16::tensor::get(A);
-            if (!a) return false; // voir si/quand ca peu arriver
+            auto a = ggml::backend::bf16::tensor::GET(A);
+            if(!a && A->view_src) {
+                // une vue => pas "encore" supporté!
+                //  il y a les kv cache... => mais pas re-formatable de toute facon!!!
+                //llama.cpp/ggml-bf16.cpp@670: type de A non defini: VIEW/v-39[64:128:8:1/2:256:32768:262144]@bf16
+                //  => VIEW: NONE/cache_v_l39[131072:1:1:1/2:262144:262144:262144]@bf16/0x31c50c0
+                //llama.cpp/ggml-bf16.cpp@670: type de A non defini: VIEW/k-39[128:64:8:1/2:2048:256:2048]@bf16
+                //  => VIEW: NONE/cache_k_l39[131072:1:1:1/2:262144:262144:262144]@bf16/0x31c50c0
+                return false;
+            }
+            GGML_ASSERT(a!=nullptr);
             // on sais deja:
-            if (a->type == ggml::bf16::TYPE::BF16_2x16) return true;
+            if (a->type == ggml::backend::bf16::TYPE::BF16_2x16) return true;
             return false;
         }
 
@@ -871,9 +727,7 @@ namespace ggml::bf16::op_matmul {
                 }
             }
 
-            //std::cout << "  - 1" << std::endl;
             for (size_t k2=0; k2<K2; k2+=K1) { // de 8 en 8 ...
-                //std::cout << "  - 10" << std::endl;
                 // chargement de A
 #pragma GCC unroll K1
                 for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..3]
@@ -882,7 +736,6 @@ namespace ggml::bf16::op_matmul {
                         A[k1][i1] = load(pA + i1*lda + k2*M0 + k1*M0*K0); // lda == K2*M0 ...
                     }
                 }
-                //std::cout << "  - 11" << std::endl;
 #pragma GCC unroll N0
                 for (size_t j=0; j<N0; ++j) {  // [0..~16]
                     // on charge K1 valeur de B
@@ -901,7 +754,6 @@ namespace ggml::bf16::op_matmul {
             }
 
             // ecriture de C...
-            //std::cout << "  - 2" << std::endl;
 #pragma GCC unroll N0
             for(size_t j=0; j<N0; j++) {
 //#pragma GCC unroll (M1/M0)
@@ -981,7 +833,7 @@ namespace ggml::bf16::op_matmul {
 
 //----------------------------------------------
 // cas sans bloc de BF16:
-class ggml_bf16_op_matmul : public ggml::bf16::op {
+class ggml_bf16_op_matmul : public ggml::backend::bf16::op {
 public:
     void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
@@ -1025,10 +877,14 @@ public:
         return ggml_bf16_op_matmul::B_is_allowed(B);
     }
     bool A_is_allowed(const struct ggml_tensor *A) override {
-        auto a = ggml::bf16::tensor::get(A);
-        if (!a) return false; // voir si/quand ca peu arriver
+        auto a = ggml::backend::bf16::tensor::GET(A);
+        if(!a && A->view_src) {
+            // une vue => pas "encore" supporté
+            return false;
+        }
+        GGML_ASSERT(a!=nullptr);
         // on sais deja:
-        if (a->type == ggml::bf16::TYPE::BF16_32x1) return true;
+        if (a->type == ggml::backend::bf16::TYPE::BF16_32x1) return true;
         // y a t'il d'autre cas compatible?
         return false;
     }
@@ -1060,10 +916,14 @@ class ggml_bf16_op_matmul_2 : public ggml_bf16_op_matmul {
 public:
     // la derniere chance!
     bool A_is_allowed(const struct ggml_tensor *A) override {
-        auto a = ggml::bf16::tensor::get(A);
-        if (!a) return false; // voir si/quand ca peu arriver
+        auto a = ggml::backend::bf16::tensor::GET(A);
+        if(!a && A->view_src) {
+            // une vue => pas "encore" supporté
+            return false;
+        }
+        GGML_ASSERT(a!=nullptr);
         // on sais deja:
-        if (a->type == ggml::bf16::TYPE::BF16_32x1) return true;
+        if (a->type == ggml::backend::bf16::TYPE::BF16_32x1) return true;
         // y a t'il d'autre cas compatible?
         return false;
     }
@@ -1098,8 +958,8 @@ public:
 //------------------------------------------------------------------------------------
 // le context definissant le backend
 // - les tenseur??? comment on gere les tenseurs du backend?
-namespace ggml::backend::bf16::tensor {
-}
+//namespace ggml::backend::bf16::tensor {
+//}
 // - le buffer
 namespace ggml::backend::bf16::buffer {
     // TODO: le buffer de ce backend
@@ -1140,9 +1000,9 @@ blk.0.attn_output.weight    [4 096, 5 120]  Q8_0
 blk.0.ffn_norm.weight   [5 120]     F32
 blk.0.attn_norm.weight  [5 120]     F32
          */
-        inline ggml::bf16::tensor* get_tensor_type(ggml_tensor * tensor) {
+        inline ggml::backend::bf16::tensor* get_tensor_type(ggml_tensor * tensor) {
             if (ggml_is_transposed(tensor)) return nullptr;
-            ggml::bf16::tensor* t = nullptr;
+            ggml::backend::bf16::tensor* t = nullptr;
             if ( (tensor->flags&GGML_TENSOR_FLAG_WEIGHTS) == GGML_TENSOR_FLAG_WEIGHTS) {
                 const std::string name = ggml_get_name(tensor);
                 // les poids ... ils peuvent supporter plus de transformations!
@@ -1154,7 +1014,7 @@ blk.0.attn_norm.weight  [5 120]     F32
                         for (auto patern: LIST_BF16_2x16()) {
                             if (name.find(patern) != std::string::npos) {
                                 //std::cout << "transforme<bf16_2x16>: " <<tensor->name<< tensor << std::endl;
-                                return &ggml::bf16::tensor_bf16_2x16_t;
+                                return &ggml::backend::bf16::tensor_bf16_2x16_t;
                             }
                         }
                     }
@@ -1165,7 +1025,7 @@ blk.0.attn_norm.weight  [5 120]     F32
             switch (tensor->type) {
             case GGML_TYPE_BF16 :
                 if (tensor->ne[0] % 32 == 0) {
-                    t=&ggml::bf16::tensor_bf16_32x1_t;
+                    t=&ggml::backend::bf16::tensor_bf16_32x1_t;
                 }
                 // std::cout << "Tenseur<"<<tensor->name<<">: bf16_32x1" << std::endl;
                 break;
@@ -1173,7 +1033,7 @@ blk.0.attn_norm.weight  [5 120]     F32
                 //  il faut verifier en fonction de type de produit le format a utiliser...
                 // + tensor_fp32_32x1_t
                 // + tensor_fp32_8x1_t
-                t=&ggml::bf16::tensor_fp32_t;
+                t=&ggml::backend::bf16::tensor_fp32_t;
                 break;
             }
             return t;
@@ -1183,15 +1043,15 @@ blk.0.attn_norm.weight  [5 120]     F32
         inline void *       get_base(void) { return m_data; }
         inline void         init_tensor(ggml_tensor * tensor) {
             // on configurer tous les tenseur tel que l'on veux qu'il soit:
-            auto t = ggml::bf16::tensor::get(tensor);
+            auto t = ggml::backend::bf16::tensor::GET(tensor);
             if (t == nullptr) {
                 // pas encore vu => on va le configurer:
                 t = get_tensor_type(tensor);
                 // OK on fixe le type !
                 if (t) {
-                    ggml::bf16::tensor::set(tensor, t);
+                    ggml::backend::bf16::tensor::SET(tensor, t);
                 } else {
-                    ggml::bf16::tensor::set(tensor, &ggml::bf16::tensor_non_supporte_t);
+                    ggml::backend::bf16::tensor::SET(tensor, &ggml::backend::bf16::tensor_non_supporte_t);
                 }
             } else {
                 std::cout << "re-init_tensor:" <<tensor->op<< tensor << std::endl;
@@ -1200,7 +1060,7 @@ blk.0.attn_norm.weight  [5 120]     F32
         // inline void load_tensor(struct ggml_tensor * tensor, File, offset);
         inline void set_tensor(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
             // TODO: traiter tous les types du backend!!!
-            if (ggml::bf16::tensor::get(tensor)->type == ggml::bf16::TYPE::BF16_2x16) {
+            if (ggml::backend::bf16::tensor::GET(tensor)->type == ggml::backend::bf16::TYPE::BF16_2x16) {
                 // if (tensor->type == GGML_TYPE_BF16) {
                 // le seul cas pour l'instant supporté: une matrice de BF16 affecté en 1 bloc
                 // std::cout << "set_tensor<"<<tensor->name<<">:" << offset << ":" << size <<"/"<<ggml_nbytes(tensor)<< std::endl;
@@ -1392,7 +1252,7 @@ namespace ggml::backend::bf16 {
                 switch (node->op) {
                 case GGML_OP_MUL_MAT:
                     //std::cout << "RUN> " <<node->op<<"@"<<node->name<< " : "<<node->src[0]->name<<std::endl;
-                    ggml::bf16::op::get(node)->exec(node);
+                    ggml::backend::bf16::op::get(node)->exec(node);
                     break;
 
                     //case GGML_OP_OUT_PROD:
@@ -1429,7 +1289,7 @@ namespace ggml::backend::bf16 {
             // reste donc a selectioner l'OP compatible!
             if (op->op == GGML_OP_MUL_MAT) {
                 // choisir la 1er OP possible!
-                for (auto imp : ggml::bf16::matmul_ops) {
+                for (auto imp : ggml::backend::bf16::matmul_ops) {
                     // l'ordre est important...
                     if (imp->C_is_allowed(op) &&
                             imp->B_is_allowed(op->src[1]) &&
@@ -1437,7 +1297,7 @@ namespace ggml::backend::bf16 {
                     {
                         auto bf16_op = imp->inst(op);
                         if (bf16_op) {
-                            ggml::bf16::op::set(op, bf16_op);
+                            ggml::backend::bf16::op::set(op, bf16_op);
                             return true;
                         }
                     }
@@ -1445,7 +1305,7 @@ namespace ggml::backend::bf16 {
                 return false;
             } else if (op->op == GGML_OP_NONE) {
                 // OK deplacé dans l'init, ca devrait etre bon
-                if (! ggml::bf16::tensor::get(op)) {
+                if (! ggml::backend::bf16::tensor::GET(op)) {
                     std::cout << "ERREUR: tenseur non configuré: " <<op->op<<op<< std::endl;
                 }
                 // TODO: ca ne sert a rien mais on peu retourner true si le poid est pour nous
@@ -1541,14 +1401,14 @@ namespace ggml::backend::bf16 {
         // backend_config == "E4M3_8x8"     // process subnormal FP8 nomber on BF16 conversion
         // ...
 
-        ggml::bf16::matmul_ops.clear();
+        ggml::backend::bf16::matmul_ops.clear();
         // bloc de BF16 / FP8
         // TODO: if (backend_config == "bf16_2x16")
-        ggml::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
+        ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
 
         // les "JART" en dernier
-        ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1);
-        ggml::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2);
+        ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1);
+        ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2);
     }
 
     static bool is_enable() {
