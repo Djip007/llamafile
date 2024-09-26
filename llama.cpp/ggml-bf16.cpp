@@ -13,23 +13,33 @@ make -j16
 make -j16 install PREFIX=/home/philou/LLM/usr/
 
 // trace des tenseurs
-GGML_SCHED_DEBUG=1 GGML_USmake -j16
-E_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:128:1:1/4:20480:2621440:2621440]@f32 => [131072:128:1:1/4:524288:67108864:67108864]@f32)
 TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
 TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
 
 > run: une fois implementé
-GGML_USE_BACKEND_BF16='["NONE     "]'              OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-GGML_USE_BACKEND_BF16='["BF16_32x1"]'              OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-GGML_USE_BACKEND_BF16='["BF16_2x16", "BF16_32x1"]' OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
+GGML_USE_BACKEND_BF16='["NONE     "]'                  OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_USE_BACKEND_BF16='["BF16_32x1"]'                  OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_USE_BACKEND_BF16='["FP8_E4M3_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_USE_BACKEND_BF16='["BF16_2x16",     "BF16_32x1"]' OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+GGML_USE_BACKEND_BF16='["FP8_E4M3_2x16", "BF16_32x1"]' OMP_NUM_THREADS=8 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 # celui de reference (llamafile)
-./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
+GGML_USE_BACKEND_BF16='["FP8_E4M3_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8  \
+./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
+
+#> mesure de perplexité:
+// [jart]: 11.7748 vs. 5.6997 ?  (wiki.test.raw?)
+wget https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip
+unzip wikitext-2-raw-v1.zip
+=> wikitext-2-raw/wiki.valid.raw
+
+GGML_USE_BACKEND_BF16='["FP8_E4M3_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
+./usr/bin/llamafile-perplexity -m Mistral-Nemo-Instruct-2407.BF16.gguf -f wikitext-2-raw/wiki.valid.raw -s 31337
 
  */
 
@@ -61,22 +71,12 @@ using json = nlohmann::json;
 #include <regex>
 #include <list>
 
+static constexpr std::size_t TENSOR_ALIGNMENT = 64; // le meme que pour les buffer!
+
 // qq includes pour pas avoir tout dans le meme fichier...
 #include "ggml-bf16-log.inc"
-#include "ggml-bf16-matrice.inc"
 #include "ggml-bf16-type.inc"
-
-/*
-template<typename T> inline bool is(const struct ggml_tensor * t) {return false;}
-template<> inline bool is<   fp32_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_F32;}
-template<> inline bool is<   bf16_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_BF16;}
-template<> inline bool is<f8_E4M3_t>(const struct ggml_tensor * t) {return t->type==GGML_TYPE_FP8;}
-*/
-
-// template<TYPE T> struct type { using t = void; };
-// #define TYPE_OF(T) ggml::bf16::type<ggml::bf16::TYPE::T>::t
-// template<> struct type<::ggml::bf16::TYPE::FP32> { using t = float; };
-// template<> struct type<::ggml::bf16::TYPE::BF16>      { using t = ::ggml_bf16_t; };
+#include "ggml-bf16-matrice.inc"
 
 namespace ggml::backend::bf16 {
     enum class TYPE {
@@ -85,12 +85,14 @@ namespace ggml::backend::bf16 {
         FP32 = GGML_TYPE_F32,
         FP16 = GGML_TYPE_F16,
         BF16 = GGML_TYPE_BF16,
-        FP8  = GGML_TYPE_FP8, // F8_E4M3 ???
+        //FP8  = GGML_TYPE_FP8, // F8_E4M3 ???
 
         // les types non d'origine
         TOUS = GGML_TYPE_COUNT+1,
         NON_SUPPORTE,
-        //E3M4,
+        E3M4,
+        E4M3,
+        E5M2,
         //E3M4_dec,
         // les types stocké sous forme de bloc 2D:
         BF16_32x1,  // tous les K se suivent
@@ -104,28 +106,25 @@ namespace ggml::backend::bf16 {
         INVALID=-1,
     };
 
-    //template<auto T> struct type_of {using t=void;};
-    //template<> struct type_of<TYPE::FP32> { using t=fp32_t; enum ggml_type v=GGML_TYPE_F32; };
-    //template<> struct type_of<TYPE::BF16> { using t=bf16_t; enum ggml_type v=GGML_TYPE_BF16; };
-    //template<> struct type_of<TYPE::FP32> { using t=fp32_t; enum TYPE v=TYPE::FP32; };
-    //template<> struct type_of<TYPE::BF16> { using t=bf16_t; enum TYPE v=TYPE::BF16; };
-
+    // un helper...
     template<typename T> struct type_of {using t=void;};
-    template<> struct type_of<fp32_t> { static constexpr TYPE T=TYPE::FP32; static constexpr ggml_type G=GGML_TYPE_F32;  };
-    template<> struct type_of<bf16_t> { static constexpr TYPE T=TYPE::BF16; static constexpr ggml_type G=GGML_TYPE_BF16; };
-
+    template<> struct type_of<fp32_t>    { static constexpr TYPE T=TYPE::FP32; static constexpr ggml_type G=GGML_TYPE_F32;   static constexpr bool SCALE=false; };
+    template<> struct type_of<bf16_t>    { static constexpr TYPE T=TYPE::BF16; static constexpr ggml_type G=GGML_TYPE_BF16;  static constexpr bool SCALE=false; };
+    template<> struct type_of<f8_E4M3_t> { static constexpr TYPE T=TYPE::E4M3; static constexpr ggml_type G=GGML_TYPE_COUNT; static constexpr bool SCALE=true; };
+    // les fp8:
 
     // + voir si on ne cre pas une map?vector "correcte" avec!
     // et gerer ca avec des regex: https://en.cppreference.com/w/cpp/regex/regex_match
     // "prefix\\.[:digit:]+\\.suffix\\.weight"
-
     // la liste des "backend" supporté (enfin de format des tenseurs de poids)
     //  https://json.nlohmann.me/features/enum_conversion/
     NLOHMANN_JSON_SERIALIZE_ENUM( TYPE, {
             {TYPE::INVALID, nullptr},
             {TYPE::BF16_32x1, "BF16_32x1"},
+            {TYPE::E4M3_32x1, "FP8_E4M3_32x1"},
             {TYPE::BF16_2x16, "BF16_2x16"},
-            {TYPE::FP8, "FP8"},
+            {TYPE::E4M3_2x16, "FP8_E4M3_2x16"},
+            //{TYPE::FP8, "FP8"},
     })
 #define DECODE_TYPE(val) val.template get<ggml::bf16::TYPE>()
 
@@ -170,11 +169,12 @@ namespace ggml::backend::bf16 {
     };
 
     // de quoi gerer les tenseurs...
-    template<typename T, int K0=1, int M0=1>
+    template<typename T, int K0=1, int M0=1, Scale SCALE=Scale::NONE>
     class tensor : public Tensor_t {
         using type_t = T;
         static constexpr auto _T = type_of<T>::T;
         static constexpr auto _G = type_of<T>::G;
+        // static constexpr auto SCALE = type_of<T>::SCALE;
     public:
         // float scale = 1; // possible que pour les poids... est-ce utils
         // TODO les tailles des blocs!  M0/N0/M1/N1 ou K0/M0/K1/M1
@@ -206,16 +206,32 @@ namespace ggml::backend::bf16 {
                 if (op->ne[3] != 1) return COMPAT::NONE;
                 // - simple re-order...
                 if (op->type == _G) return COMPAT::CONVERT;
-                // - conversion de type:  TODO.
+                // - conversion de type:
                 if constexpr (_T == TYPE::FP32) {
-                    // un peu domage ...
-                    // TODO: depuis FP16/BF16/..
+                    switch (op->type) {
+                    case GGML_TYPE_BF16:
+                    case GGML_TYPE_F16:
+                        // un peu bette... et pas codé de toute facon
+                        break;
+                    }
                 } else
                 if constexpr (_T == TYPE::BF16) {
-                    // TODO: depuis FP32/FP16/..
+                    switch (op->type) {
+                    case GGML_TYPE_F32:
+                        return COMPAT::CONVERT;
+                    case GGML_TYPE_F16:
+                        break; // @ voir...
+                    }
                 } else
-                if constexpr (_T == TYPE::FP8) {
-                    // TODO: depuis FP16/BF16/..
+                if constexpr (_T == TYPE::E4M3) {
+                    // depuis FP32/BF16/FP16
+                    switch (op->type) {
+                    case GGML_TYPE_F32:
+                    case GGML_TYPE_BF16:
+                        return COMPAT::CONVERT;
+                    case GGML_TYPE_F16:
+                        break; // TODO:...
+                    }
                 } else {
                     static_assert(false, "TYPE non supporté");
                 }
@@ -228,7 +244,9 @@ namespace ggml::backend::bf16 {
             // ne doit etre appelé que si on est sur de vouloir l'utiliser.
             if (is_allowed(tensor) == COMPAT::CONVERT) {
                 // calcul de sa taille:
-                return sizeof(T)*tensor->ne[0]*tensor->ne[1]*tensor->ne[2]*tensor->ne[3];
+                auto size = sizeof(T)*tensor->ne[0]*tensor->ne[1]*tensor->ne[2]*tensor->ne[3];
+                return size+Matrice<T,K0,M0,SCALE>::scale_size(tensor->ne[1]);
+                // return (SCALE==Scale::NONE)?size:(size+TENSOR_ALIGNMENT);
             }
             // OK pour NATIVE ou NONE
             return ggml_nbytes(tensor);
@@ -246,7 +264,9 @@ namespace ggml::backend::bf16 {
             // dans tous les autres cas il y a copie...
             //  et je sais pas le faire dans tous les cas..
             GGML_ASSERT(offset == 0);
-            GGML_ASSERT(size == get_alloc_size(tensor));
+            //GGML_ASSERT(size == get_alloc_size(tensor));
+            //if (size != get_alloc_size(tensor)) GGML_ABORT("BF16_ABORT(%s: %ld != %ld)", __PRETTY_FUNCTION__, size, get_alloc_size(tensor));
+            if (size != ggml_nbytes(tensor)) GGML_ABORT("BF16_ABORT(%s: %ld != %ld)", __PRETTY_FUNCTION__, size, get_alloc_size(tensor));
             GGML_ASSERT(tensor->ne[2] == 1);
             GGML_ASSERT(tensor->ne[3] == 1);
             // pas le choix pour la destination:
@@ -272,25 +292,32 @@ namespace ggml::backend::bf16 {
     private:
         template<typename T2>
         void set_tensor(struct ggml_tensor * tensor, const void * data) {
-            Matrice<T,K0,M0> dest(tensor);
-            Matrice<T2> orig(data, tensor);
+            Matrice<T,K0,M0,SCALE> dest(tensor);
+            const Matrice<const T2> orig(data, tensor);
+            float scale = 1;
+            if constexpr(SCALE == Scale::GLOBAL) {
+                // dest.set_scale(1);
+                auto max = orig.max();
+                scale = MAX<T>()/max;
+                dest.set_scale(max/MAX<T>());
+                // std::cout << "Convert fp8:" << max <<"/"<< scale << "/"<<dest.get_scale()<< tensor->name<< std::endl;
+            }
+#pragma omp parallel for schedule(guided)
             for (int j=0; j<orig.DIM2(); j++) {
+                if constexpr(SCALE==Scale::PER_COL) {
+                    // TODO. calculer par colonne !!
+                }
                 for (int i=0; i<orig.DIM1(); i++) {
-                    conv(dest(i,j), orig(i,j));
-                    //dest(i,j) = (T)orig(i,j);
+                    if constexpr(SCALE==Scale::NONE) {
+                        conv(dest(i,j), orig(i,j));
+                    } else {
+                        float v;
+                        conv(v, orig(i,j));
+                        conv(dest(i,j), v*scale);
+                    }
                 }
             }
         }
-        /*
-        template<typename T2>
-        void set_tensor(const Matrice<T2>& orig , Matrice<T,K0,M0>& dest) {
-            for (int j=0; j<orig.DIM2(); j++) {
-                for (int i=0; i<orig.DIM2(); i++) {
-                    conv(dest(i,j), orig(i,j));
-                }
-            }
-        }
-        */
     };
 
     // les types de tenseur que l'on sais traiter...
@@ -302,11 +329,12 @@ namespace ggml::backend::bf16 {
     static tensor<fp32_t,32> tensor_fp32_32x1_t("tensor<fp32_t,32>");
     static tensor<fp32_t, 8> tensor_fp32_8x1_t ("tensor<fp32_t, 8>");
 
-    static tensor<bf16_t,32> tensor_bf16_32x1_t("tensor<bf16_t,32>");
+    static tensor<bf16_t,32>                    tensor_bf16_32x1_t("tensor<bf16_t,32>");
+    static tensor<f8_E4M3_t,32,1,Scale::GLOBAL> tensor_f8_E4M3_32x1_t("tensor<f8_E4M3_t,32>");
 
     // - les types qui ont besoin d'une conversion => que des poids!
-    static tensor<bf16_t,2,16> tensor_bf16_2x16_t("tensor<bf16_t,2,16>");
-    //static tensor<fp8_t,2,16> tensor_bf16_2x16_t("tensor<fp8_t,2,16>"); ???
+    static tensor<bf16_t,2,16>                  tensor_bf16_2x16_t("tensor<bf16_t,2,16>");
+    static tensor<f8_E4M3_t,2,16,Scale::GLOBAL> tensor_f8_E4M3_2x16_t("tensor<f8_E4M3_t,2,16>");
 
     // la liste que l'on a le droit d'utiliser, dans l'ordre de priorité:
     static std::list<Tensor_t*> tensors;
@@ -344,8 +372,14 @@ namespace ggml::backend::bf16 {
 
 // &ggml::backend::bf16::tensor_bf16_32x1_t
 template<typename T> struct Tensor_32x1 { using type = void; };
-template<> struct Tensor_32x1<fp32_t> { using type = fp32_t; static constexpr auto* tensor=&ggml::backend::bf16::tensor_fp32_32x1_t;};
-template<> struct Tensor_32x1<bf16_t> { using type = bf16_t; static constexpr auto* tensor=&ggml::backend::bf16::tensor_bf16_32x1_t;};
+template<> struct Tensor_32x1<fp32_t>    { using type = fp32_t;    static constexpr auto* tensor=&ggml::backend::bf16::tensor_fp32_32x1_t;};
+template<> struct Tensor_32x1<bf16_t>    { using type = bf16_t;    static constexpr auto* tensor=&ggml::backend::bf16::tensor_bf16_32x1_t;};
+template<> struct Tensor_32x1<f8_E4M3_t> { using type = f8_E4M3_t; static constexpr auto* tensor=&ggml::backend::bf16::tensor_f8_E4M3_32x1_t;};
+
+//Tensor_2x16
+template<typename T> struct Tensor_2x16 { using type = void; };
+template<> struct Tensor_2x16<bf16_t>    { using type = bf16_t;    static constexpr auto* tensor=&ggml::backend::bf16::tensor_bf16_2x16_t;};
+template<> struct Tensor_2x16<f8_E4M3_t> { using type = f8_E4M3_t; static constexpr auto* tensor=&ggml::backend::bf16::tensor_f8_E4M3_2x16_t;};
 
 // tenseur:
 //  - liste de supported?
@@ -373,7 +407,9 @@ template<> struct Tensor_32x1<bf16_t> { using type = bf16_t; static constexpr au
 //----------------------------------------------
 // cas block de BF16:
 namespace ggml::bf16::op_matmul {
+    template<typename TYPE_A, Scale SCALE>
     class bf16_2x16: public ggml::backend::bf16::op {
+        // static constexpr auto SCALE = ggml::backend::bf16::type_of<TYPE_A>::SCALE;
         // OK c'est prometeur on sature la memoire avec 2 threads!
         // Pour aller plus vite il va faloir gerer les caches!
         //  - A => en L2
@@ -398,9 +434,9 @@ namespace ggml::bf16::op_matmul {
             mesure time; time.start();
 #endif
             // normalement ici les type sont deja controlé
-            const Matrice<bf16_t,2,16> A(op->src[0]);
-            const Matrice<fp32_t>      B(op->src[1]);
-            Matrice<fp32_t>            C(op);
+            const Matrice<TYPE_A,2,16,SCALE> A(op->src[0]);
+            const Matrice<fp32_t>            B(op->src[1]);
+            Matrice<fp32_t>                  C(op);
             mul_mat(A, B, C);
 #ifdef DO_TIMING
             auto dt = time.end();
@@ -429,8 +465,8 @@ namespace ggml::bf16::op_matmul {
             }
             GGML_ASSERT(a!=nullptr);
             // on sais deja:
-            if (a == &ggml::backend::bf16::tensor_bf16_2x16_t) return true;
-            // if (a->type == ggml::backend::bf16::TYPE::BF16_2x16) return true;
+            //if (a == &ggml::backend::bf16::tensor_bf16_2x16_t) return true;
+            if (a == Tensor_2x16<TYPE_A>::tensor) return true;
             return false;
         }
 
@@ -438,7 +474,7 @@ namespace ggml::bf16::op_matmul {
         //   pas le plus performant possible mais de quoi faire qq tests
         //  => K0/M0 sont alors fixé pour A!
         template<size_t N0, typename TA, typename TB, typename TC>
-        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2) {
+        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2, float scale) {
             // lda: comment passer de A[k,i] => A[k,i+M1]
             // ldb: comment passer de B[k,j] => B[k,j+1]
             // ldc: comment passer de C[i,j] => C[i,j+1]
@@ -484,30 +520,30 @@ namespace ggml::bf16::op_matmul {
             // ecriture de C...
 #pragma GCC unroll N0
             for(size_t j=0; j<N0; j++) {
-                store(pC+j*ldc, C[j]);
+                store(pC+j*ldc, C[j]* (SCALE!=Scale::NONE?scale:1));
             }
         }
 
         template<size_t N0, size_t M0, size_t K0>
-        inline void sgemm_bloc(const Matrice<bf16_t,K0,M0>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C, size_t i, size_t j, size_t N, size_t K) const {
+        inline void sgemm_bloc(const Matrice<TYPE_A,K0,M0,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C, size_t i, size_t j, size_t N, size_t K) const {
             static_assert(N0<=16);
             switch (N) {
-                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
-                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K); break;
+                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
                 default: break;
             }
             // std::cout << "    N="<<N<<"/"<<N0<< std::endl;
@@ -524,7 +560,7 @@ namespace ggml::bf16::op_matmul {
         }
 
         template<size_t K0, size_t M0>
-        void mul_mat(const Matrice<bf16_t,K0,M0>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const {
+        void mul_mat(const Matrice<TYPE_A,K0,M0,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const {
             static_assert(K0==2);
             static_assert(M0==16);
             const auto m = C.DIM1(); // == A.DIM2()
@@ -557,9 +593,11 @@ namespace ggml::bf16::op_matmul {
 
 //----------------------------------------------
 // cas sans bloc de BF16:
-template<typename TYPE_A>
+template<typename TYPE_A, Scale SCALE>
 class ggml_bf16_op_matmul : public ggml::backend::bf16::op {
 public:
+    // static constexpr auto SCALE = ggml::backend::bf16::type_of<TYPE_A>::SCALE;
+
     void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
         mesure time; time.start();
@@ -578,9 +616,10 @@ public:
                 const auto i02 = i12/r2;
 
                 // TODO: les bon packing...
-                const Matrice<TYPE_A> A(src0,i02,i03);  // bf16_32x1
-                const Matrice<fp32_t> B(src1,i12,i13);  // fp32_32x1
-                Matrice<fp32_t> C(dst,i12,i13);         // fp32_32x1
+                // const Matrice<TYPE_A,32,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
+                const Matrice<TYPE_A,1,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
+                const Matrice<fp32_t>           B(src1,i12,i13);  // fp32_32x1!
+                Matrice<fp32_t>                 C(dst,i12,i13);         // fp32_32x1!
                 mul_mat(A, B, C);
             }}
 #ifdef DO_TIMING
@@ -592,12 +631,12 @@ public:
 #endif
     }
     //  - bf16+fp32=fp32
-    virtual void mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const = 0;
+    virtual void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const = 0;
 };
 
-template<typename TYPE_A>
-class ggml_bf16_op_matmul_1 : public ggml_bf16_op_matmul<TYPE_A> {
-    using parent = ggml_bf16_op_matmul<TYPE_A>;
+template<typename TYPE_A, Scale SCALE>
+class ggml_bf16_op_matmul_1 : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
+    using parent = ggml_bf16_op_matmul<TYPE_A,SCALE>;
 public:
     //if (B/C->ne[1]>6 );
     bool B_is_allowed(const struct ggml_tensor *B) override {
@@ -616,7 +655,7 @@ public:
         if (a == Tensor_32x1<TYPE_A>::tensor) return true;
         return false;
     }
-    void mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
+    void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
         const auto m = C.DIM1(); // == A.DIM2()
         const auto n = C.DIM2(); // == B.DIM2()
         const auto k = A.DIM1(); // == B.DIM1()
@@ -641,9 +680,9 @@ public:
 };
 
 // Tensor_32x1<bf16_t>
-template<typename TYPE_A>
-class ggml_bf16_op_matmul_2 : public ggml_bf16_op_matmul<TYPE_A> {
-    using parent = ggml_bf16_op_matmul<TYPE_A>;
+template<typename TYPE_A, Scale SCALE>
+class ggml_bf16_op_matmul_2 : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
+    // using parent = ggml_bf16_op_matmul<TYPE_A,SCALE>;
 public:
     // la derniere chance!
     bool A_is_allowed(const struct ggml_tensor *A) override {
@@ -658,7 +697,7 @@ public:
         if (a == Tensor_32x1<TYPE_A>::tensor) return true;
         return false;
     }
-    void mul_mat(const Matrice<bf16_t>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
+    void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
         const auto m = C.DIM1(); // == A.DIM2()
         const auto n = C.DIM2(); // == B.DIM2()
         const auto k = A.DIM1(); // == B.DIM1()
@@ -694,7 +733,6 @@ public:
 // - le buffer
 namespace ggml::backend::bf16::buffer {
     //  => comme pour les autre C => C++: class context;
-    static constexpr std::size_t TENSOR_ALIGNMENT = 64;
     class context {
     public:
         context(size_t size) : m_size(size) {
@@ -862,7 +900,8 @@ namespace ggml::backend::bf16::buffer_type {
         inline const char * get_name() { return "BF16"; }
         // inline ggml_backend_buffer_t alloc_buffer(size_t size) { return nullptr; }
         inline size_t get_alignment(){
-            return ggml::backend::bf16::buffer::TENSOR_ALIGNMENT; // @ voir quoi mettre: 512 bits?
+            //return ggml::backend::bf16::buffer::TENSOR_ALIGNMENT; // @ voir quoi mettre: 512 bits?
+            return TENSOR_ALIGNMENT; // @ voir quoi mettre: 512 bits?
         }
         inline size_t get_max_size(){
             return (size_t)64*1024*1024*1024; // la taille de la RAM/GGT/VRAM ???
@@ -871,8 +910,11 @@ namespace ggml::backend::bf16::buffer_type {
             // Voir si on peu utiliser le type... est-t'on sur de ce qu'il va etre au final?
             //ggml::backend::bf16::buffer::ctx(tensor->buffer);
             auto type = ggml::backend::bf16::buffer::context::get_tensor_type(tensor);
-            // std::cout << "get_alloc_size("<<tensor->name<<"):" << type->get_alloc_size(tensor) << "/" << ggml_nbytes(tensor) << std::endl;
-            // TODO: utiliser la methode du type...
+            //std::cout << "get_alloc_size("<<tensor->name<<"):" << ((type==nullptr)?0:type->get_alloc_size(tensor)) << "/" << ggml_nbytes(tensor) << std::endl;
+            if (type) {
+                return type->get_alloc_size(tensor);
+            }
+            std::cout << "??? get_alloc_size("<<tensor->name<<"):" << "/" << ggml_nbytes(tensor) << std::endl;
             return ggml_nbytes(tensor);
         }
         inline bool is_host() {
@@ -1106,14 +1148,21 @@ namespace ggml::backend::bf16 {
             case ggml::backend::bf16::TYPE::BF16_32x1:
                 // les "JART" en dernier de preferance.
                 ggml::backend::bf16::tensors.push_back(&ggml::backend::bf16::tensor_bf16_32x1_t);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1<bf16_t>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2<bf16_t>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1<bf16_t, Scale::NONE>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2<bf16_t, Scale::NONE>);
                 break;
-            //case ggml::backend::bf16::TYPE::FP8_32x1:
-            //    break;
+            case ggml::backend::bf16::TYPE::E4M3_32x1:
+                ggml::backend::bf16::tensors.push_back(&ggml::backend::bf16::tensor_f8_E4M3_32x1_t);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_1<f8_E4M3_t, Scale::GLOBAL>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_2<f8_E4M3_t, Scale::GLOBAL>);
+                break;
             case ggml::backend::bf16::TYPE::BF16_2x16:
                 ggml::backend::bf16::tensors.push_back(&ggml::backend::bf16::tensor_bf16_2x16_t);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<bf16_t, Scale::NONE>);
+                break;
+            case ggml::backend::bf16::TYPE::E4M3_2x16:
+                ggml::backend::bf16::tensors.push_back(&ggml::backend::bf16::tensor_f8_E4M3_2x16_t);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t, Scale::GLOBAL>);
                 break;
                 // ...
             }
