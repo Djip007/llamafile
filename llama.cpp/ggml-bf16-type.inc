@@ -23,6 +23,15 @@ using f8_E3M4_t = ggml_E3M4_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E3M4
 using f8_E4M3_t = ggml_E4M3_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E4M3
 using f8_E5M2_t = ggml_E5M2_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E5M2
 
+namespace std {
+template<typename T> constexpr std::string to_string() {return "UNKNOW";}
+template<> constexpr std::string to_string<fp32_t>() {return "fp32_t";}
+template<> constexpr std::string to_string<bf16_t>() {return "bf16_t";}
+template<> constexpr std::string to_string<fp16_t>() {return "fp16_t";}
+template<> constexpr std::string to_string<f8_E3M4_t>() {return "f8_E3M4_t";}
+template<> constexpr std::string to_string<f8_E4M3_t>() {return "f8_E4M3_t";}
+template<> constexpr std::string to_string<f8_E5M2_t>() {return "f8_E5M2_t";}
+}
 
 // qq veteur de bf16
 using bf16_x32 = __m512bh;
@@ -34,7 +43,8 @@ FP8_NORMAL
 fp8<E,M>: S.[E].[M]
 
 */
-template<int N> float EXP2() {
+template<int N> constexpr float EXP2() {
+    // TODO le faire avec N/2 ... pour aller plus vite!!!
     if constexpr (N==0) return 1;
     if constexpr (N>0) return EXP2<N-1>()*2;
     if constexpr (N<0) return EXP2<N+1>()/2;
@@ -138,15 +148,18 @@ struct _fp32_16x1_t {
 
 // les usages:
 //============================================
-//MAX<T>()  // pour les cas qui ont besoin d'un scale!
-template<typename T> float MAX() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
+// pour les cas qui ont besoin d'un scale!
+//MAX<T>()
+template<typename T> constexpr float MAX() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
+//CORRECTION<T>()
+template<typename T> constexpr float CORRECTION() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
 // les conversion a implementer: T2 => T1
 //> conv(T1 dest, const T2 orig): dest = orig
 template<typename T1, typename T2> static inline void conv(T1& dest , const T2& orig) {dest = orig;}
 //> bf16x32_t load(T orig): T => bf16_x32
 //
 
-template<> float MAX<f8_E4M3_t>() {return 448;}
+template<> constexpr float MAX<f8_E4M3_t>() {return 448;}
 // [...]
 //============================================
 // - cas general: pour B:
@@ -268,6 +281,13 @@ llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec){
     return _mm512_castsi512_bh(_mm512_or_si512(sign_16,_mm512_castbh_si512(result)));
 }
 */
+
+//#define FP8_FULL
+//#define FP8_NO_SUB
+#define FP8_SMALL
+
+#ifdef FP8_FULL
+template<> constexpr float CORRECTION<f8_E4M3_t>() {return 1;}
 static inline __m512bh
 llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec)
 {
@@ -301,8 +321,11 @@ llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec)
               7)))),
       _mm512_slli_epi16(_mm512_and_si512(x, _mm512_set1_epi16(128)), 8)));
 }
+#endif
+#ifdef FP8_NO_SUB
+template<> constexpr float CORRECTION<f8_E4M3_t>() {return 1;}
 static inline __m512bh
-llamafile_fp8_e4m3_to_bf16_avx512_nd(__m256i fp8_vec) {
+llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec) {
     __m512i fp8_v16 = _mm512_cvtepu8_epi16(fp8_vec);
 
     // denorm mask  => need AVX512BW ?
@@ -318,12 +341,30 @@ llamafile_fp8_e4m3_to_bf16_avx512_nd(__m256i fp8_vec) {
     __m512i em = _mm512_mask_blend_epi16(is_denorm,mant_16,_mm512_setzero_si512());
     return _mm512_castsi512_bh(_mm512_or_si512(sign_16,em));
 }
+#endif
+#ifdef FP8_SMALL
+template<> constexpr float CORRECTION<f8_E4M3_t>() {return EXP2<120>();}
+static inline __m512bh
+llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec) {
+    __m512i fp8_v16 = _mm512_cvtepu8_epi16(fp8_vec);
+
+    // extract sign and expo+mantice
+    __m512i em_16   = _mm512_and_si512(fp8_v16, _mm512_set1_epi16(0x7F));
+    __m512i sign_16 = _mm512_and_si512(fp8_v16, _mm512_set1_epi16(0x80));
+
+    // shift them
+    em_16 = _mm512_slli_epi16(em_16, 4);
+    sign_16 = _mm512_slli_epi16(sign_16, 8);
+
+    return _mm512_castsi512_bh(_mm512_or_si512(sign_16,em_16));
+}
+#endif
+
 // TODO: separer les cas avec et sans saturation.. et sans NAN?
 // f8_E4M3s_t f8_E4M3n_t
 static inline auto load(const f8_E4M3_t *X) {
     auto x = _mm256_loadu_epi8(X);
-    return llamafile_fp8_e4m3_to_bf16_avx512_nd(x);
-    //return llamafile_fp8_e4m3_to_bf16_avx512(x);
+    return llamafile_fp8_e4m3_to_bf16_avx512(x);
 }
 
 //------------------------------------------------------------------------------------

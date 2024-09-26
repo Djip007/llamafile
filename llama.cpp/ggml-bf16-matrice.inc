@@ -21,10 +21,19 @@ enum class Scale {
     PER_COL
 };
 
+namespace std {
+constexpr std::string to_string(Scale s) {
+    if (s==Scale::NONE) return "NONE";
+    if (s==Scale::GLOBAL) return "GLOBAL";
+    if (s==Scale::PER_COL) return "PER_COL";
+    return "UNKOW";
+}
+}
+
 template<typename T, size_t K=1, size_t M=1, Scale SCALE=Scale::NONE>
 class Matrice {
 public:
-    // qq-aide:
+    // qq-aides:
     static inline std::size_t scale_size(std::size_t n) {
         if constexpr(SCALE == Scale::NONE)    return 0;
         if constexpr(SCALE == Scale::GLOBAL)  return TENSOR_ALIGNMENT;
@@ -57,7 +66,6 @@ public:
     float* m_scale=nullptr;
 
     inline Matrice(T* v, std::size_t m, std::size_t n, std::size_t l): m_m(m), m_n(n), m_l((K*M==1)?l:m*K*M),
-            // m_values(add_byte<T>(v,SCALE?TENSOR_ALIGNMENT:0)),
             m_values(data_adr(v,n)),
             m_scale(scale_adr(v))
     {
@@ -79,7 +87,6 @@ public:
         GGML_ASSERT(t->ne[3]==1);
     }
 
-    //inline Matrice(struct ggml_tensor * t): m_m(t->ne[0]), m_n(t->ne[1]), m_l((t->nb[1]/t->nb[0])*K*M), m_values((T*)(t->data)) {
     inline Matrice(struct ggml_tensor * t):
             m_m(t->ne[0]), m_n(t->ne[1]),
             m_l((K*M==1)?(t->nb[1]/t->nb[0]):t->ne[0]*M),
@@ -98,39 +105,32 @@ public:
             m_values(data_adr(t->data, t->ne[1], i*t->nb[2]+j*t->nb[3])),
             m_scale(scale_adr(t->data))
     {
-        // pas utilisable pour les empilements de matrice non native!
+        // pas (encore) utilisable pour les empilements de matrice non native!
         static_assert(M==1);
-        /*if constexpr(SCALE) {
-            m_values = add_byte<T>(t->data, TENSOR_ALIGNMENT+i*t->nb[2]+j*t->nb[3]);
-        } else {
-            m_values = add_byte<T>(t->data, i*t->nb[2]+j*t->nb[3]);
-        }*/
     }
 
-    inline void set_scale(float val, size_t i=0) {
-        *m_scale = val;
+    inline void set_scale(float val, size_t j=0) {
+        if constexpr(SCALE==Scale::GLOBAL) *m_scale = val;
+        if constexpr(SCALE==Scale::PER_COL) m_scale[j] = val;
     }
 
-    inline auto get_scale(size_t i=0) const {
-        if constexpr(SCALE==Scale::GLOBAL) {
-            return *m_scale;
-        //} else { // FP32x16
-        } else {
-            return (float)1;
-        }
+    inline auto get_scale(size_t j=0) const {
+        if constexpr(SCALE==Scale::GLOBAL) return *m_scale;
+        if constexpr(SCALE==Scale::PER_COL) return m_scale+j; // float[j,...]
+        if constexpr(SCALE==Scale::NONE) return (float)1;
     }
+
+    // get_scale<vector>
 
     inline T& operator()(size_t i, size_t j) {
         const auto i0 = i%K; const auto i1 = i/K;
         const auto j0 = j%M; const auto j1 = j/M;
         return m_values[j1*m_l+j0*K+i1*K*M+i0];
-        // return m_values[j*m_l+i];
     }
     inline const T operator()(size_t i, size_t j) const {
         const auto i0 = i%K; const auto i1 = i/K;
         const auto j0 = j%M; const auto j1 = j/M;
         return m_values[j1*m_l+j0*K+i1*K*M+i0];
-        // return m_values[j*m_l+i];
     }
 
     inline T* addr(size_t i, size_t j) {
@@ -174,6 +174,15 @@ public:
         }
         return res;
     }
-    // TODO: max(n)
+    inline float max(size_t j) const {
+        float res = 0;
+        float val;
+        for (size_t i=0; i<m_m; i++) {
+            conv(val, (*this)(i,j));
+            val = val>0?val:-val;
+            if (val>res) res = val;
+        }
+        return res;
+    }
 
 };
