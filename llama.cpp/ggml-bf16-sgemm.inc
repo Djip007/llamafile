@@ -1,8 +1,8 @@
-// permet de gerer les format "natif"
-//   ou presque ...
-// et calcule avec "dot2": fp32_t += bf16_t*bf16_t + bf16_t*bf16_t
+// work with all "natif" on A: fp32/bf16/fp8
+// always compute with "dot2": fp32_t += bf16_t*bf16_t + bf16_t*bf16_t
+//  => only for zen4 (5?)
 
-// pour que ca marche il fautavoir codé:
+// pour que ca marche il faut avoir codé:
 //  - load  // A&B => __m512bh
 //  - store // __m512bh => B_cache
 //  - hsum  // __m512   => float
@@ -13,16 +13,16 @@ enum class ACTION {
     LOAD
 };
 
-// TODO: ajouter un facteur de correction pour C...
+// the lowest kernel.
 template<size_t M, size_t N, Scale SCALE, ACTION ACT=ACTION::NONE, bool ACC=false, typename TA, typename TB, typename TS> //, typename TC>
 static void sgemm_bf16x32(const TA *pA, const TB *pB, float *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K, bf16_t *pB_, std::size_t ldb_, TS scale) {
     constexpr int K0 = 32; // 32 bf16 !
     static_assert(N>0);
     static_assert(M>0);
     // K%32 == 0!!
-    // A[?,K+:lda]
-    // B[?,K+:ldb]
-    // C[?,ldc]
+    // A[:,K+:lda]
+    // B[:,K+:ldb]
+    // C[:,ldc]
     __m512   C[M][N];
     __m512bh A[M];
 #pragma GCC unroll N
@@ -66,7 +66,7 @@ static void sgemm_bf16x32(const TA *pA, const TB *pB, float *pC, std::size_t lda
                 }
             } else if constexpr(SCALE==Scale::GLOBAL) {
                 if constexpr (ACC) {
-                    pC[i+j*ldc] += hsum(C[i][j]) * scale;
+                    pC[i+j*ldc] += hsum(C[i][j]) * scale;  // TODO report scale on hsum<SCALE>
                 } else {
                     pC[i+j*ldc] = hsum(C[i][j]) * scale;
                 }
@@ -81,6 +81,7 @@ static void sgemm_bf16x32(const TA *pA, const TB *pB, float *pC, std::size_t lda
     }
 }
 
+// dispatch for lower MxN
 template<size_t M, size_t N, Scale SCALE, ACTION ACT=ACTION::NONE, bool ACC=false, typename TA, typename TB, typename TC, typename TS>
 static void sgemm_512_bloc(TA* A, TB* B, TC* C, size_t m, size_t n, size_t k, size_t lda, size_t ldb, size_t ldc, bf16_t* B_, size_t ldb_, TS scale) {
     GGML_ASSERT(m<=M);
@@ -103,6 +104,7 @@ static void sgemm_512_bloc(TA* A, TB* B, TC* C, size_t m, size_t n, size_t k, si
     }
 }
 
+// dispache compute
 template<size_t M1, size_t N1, size_t M0, size_t N0, size_t K0=1024, typename TA, typename TB, typename TC, Scale SCALE>
 static inline void sgemm_512_bloc(const Matrice<TA,1,1,SCALE>& A, const Matrice<TB>& B, Matrice<TC>& C, size_t I0, size_t J0, bf16_t* B_) {
     const size_t IN = std::min(C.DIM1(), I0+M1*M0);
@@ -151,7 +153,6 @@ static inline void sgemm_512_bloc(const Matrice<TA,1,1,SCALE>& A, const Matrice<
 template<typename TYPE_A, Scale SCALE>
 class ggml_bf16_op_matmul : public ggml::backend::bf16::op {
 public:
-
     void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
         mesure time; time.start();
@@ -173,7 +174,7 @@ public:
                 // const Matrice<TYPE_A,32,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
                 const Matrice<TYPE_A,1,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
                 const Matrice<fp32_t>           B(src1,i12,i13);  // fp32_32x1!
-                Matrice<fp32_t>                 C(dst,i12,i13);         // fp32_32x1!
+                Matrice<fp32_t>                 C(dst,i12,i13);   // fp32_32x1!
                 mul_mat(A, B, C);
             }}
 #ifdef DO_TIMING
@@ -188,12 +189,14 @@ public:
     virtual void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const = 0;
 };
 
+// K1 = 2560 5120 2048 4096 ...
+// compute for tg and small pp
 template<typename TYPE_A, Scale SCALE, size_t M0, size_t N0, size_t M1=4, size_t K1=2560>
 class ggml_bf16_op_matmul_tg : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
     using parent = ggml_bf16_op_matmul<TYPE_A,SCALE>;
 public:
-    //if (B/C->ne[1]>6 );
     bool B_is_allowed(const struct ggml_tensor *B) override {
+        // limit for tg and small pp (<=N0)
         if (B->ne[1]>N0) return false;
         return parent::B_is_allowed(B);
     }
@@ -215,12 +218,6 @@ public:
         GGML_ASSERT(A.LD()>=k);
         GGML_ASSERT(B.LD()>=k);
         GGML_ASSERT(C.LD()>=m);
-        // ici k<=6 ...
-        //constexpr size_t M0 = 8; //4;
-        //constexpr size_t N0 = 3; //6;
-        //constexpr size_t M1 = 4;
-        //constexpr size_t K0 = 2560; // 5120; //2048+512; // 4096+1024;
-        //static thread_local bf16_t B_cache[N0*K0];
         bf16_t B_cache[N0*K1];
 
 #pragma omp parallel for private(B_cache) schedule(guided)
@@ -232,6 +229,7 @@ public:
     }
 };
 
+// dispache for all pp size
 template<typename TYPE_A, Scale SCALE, size_t M0, size_t N0, size_t M1=8, size_t N1=4, size_t K1=2560>
 class ggml_bf16_op_matmul_pp : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
 public:
