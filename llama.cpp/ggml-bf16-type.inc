@@ -1,6 +1,8 @@
 // gestion des types pour les templates.
 #include "ggml.h"
 
+// x86 => https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#
+
 // voir quel type gerer...
 // - quel format
 // - quel possibilié:
@@ -33,10 +35,17 @@ template<> constexpr std::string to_string<f8_E4M3_t>() {return "f8_E4M3_t";}
 template<> constexpr std::string to_string<f8_E5M2_t>() {return "f8_E5M2_t";}
 }
 
-// qq veteur de bf16
+// qq vecteur de
+// using f8_E4M3_x64 =
+
+// qq vecteur de bf16
 using bf16_x32 = __m512bh;
 using bf16_x16 = __m256bh;
 using bf16_x8  = __m128bh;
+
+using fp32_x16 = __m512;
+using fp32_x8  = __m256;
+using fp32_x4  = __m128;
 
 /*
 FP8_NORMAL
@@ -181,21 +190,8 @@ static inline void conv(fp32_t& dest, const bf16_t orig) {
     u.b = (uint32_t)orig.bits << 16;
     dest = u.f;
 }
-// fp32_t => bf16x32_t
-static inline auto load(const fp32_t *X) {
-    auto x1 = _mm512_loadu_ps(X);
-    auto x2 = _mm512_loadu_ps(X+16);
-    return _mm512_cvtne2ps_pbh(x2,x1);
-}
-
 //============================================
 // cas pour A:
-//------------------------------------------
-// => fp16
-static inline auto load(const bf16_t *X) {
-    return (__m512bh) _mm512_loadu_epi16(X);
-}
-
 //------------------------------------------
 // => f8_E4M3:
 // avec staturation !! (devrais pouvoir etre supprimé si on code le suivant sans lui...)
@@ -360,21 +356,14 @@ llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec) {
 }
 #endif
 
-// TODO: separer les cas avec et sans saturation.. et sans NAN?
-// f8_E4M3s_t f8_E4M3n_t
-static inline auto load(const f8_E4M3_t *X) {
-    auto x = _mm256_loadu_epi8(X);
-    return llamafile_fp8_e4m3_to_bf16_avx512(x);
-}
-
 //------------------------------------------------------------------------------------
 //  pour C et B_cache.
 //> store(T* , T[N])
-static inline void store(bf16_t *pX, const __m512bh& x) {
-    _mm512_storeu_epi16(pX, (__m512i)x);
-}
 static inline void store(fp32_t *pX, const __m512& x) {
     _mm512_storeu_ps(pX, x);
+}
+static inline void store(bf16_t *pX, const __m512bh& x) {
+    _mm512_storeu_epi16(pX, (__m512i)x);
 }
 /*
 // write C after last reduction
@@ -388,6 +377,7 @@ static inline void store(fp32_t *pX, T&&... x) {
 
 //> fp32_t hsum(fp32x16_t) : somme les 16 float du vecteur
 // y appliquer un facteur de correction si besoin
+//TODO: template<Scale SCALE=Scale::NONE>
 template<bool SCALE=false>
 static inline float hsum(__m512 x, fp32_t scale=1) {
     if constexpr (SCALE) {
@@ -398,3 +388,81 @@ static inline float hsum(__m512 x, fp32_t scale=1) {
 }
 
 //------------------------------------------------------------------------------------
+// une facon de recuperer les types vectoriel
+template<typename T, int N> struct type_t { using t = void; }; // fictif...
+template<> struct type_t<fp32_t, 16> { using t = fp32_x16; };
+template<> struct type_t<fp32_t,  8> { using t = fp32_x8;  };
+template<> struct type_t<fp32_t,  4> { using t = fp32_x4;  };
+
+template<> struct type_t<bf16_t, 32> { using t = bf16_x32; };
+template<> struct type_t<bf16_t, 16> { using t = bf16_x16; };
+template<> struct type_t<bf16_t,  8> { using t = bf16_x8;  };
+
+//------------------------------------------------------------------------------------
+// les load
+template<typename T, typename _T> T load(const _T* X) {
+    static_assert(false, "cas non implementé");
+}
+// fp32_t => fp32xN_t
+template<> inline fp32_x16 load<fp32_x16, fp32_t>(const fp32_t *X) {
+    return _mm512_loadu_ps(X);
+}
+//
+//template<> inline fp32_x16 load<fp32_x16, fp32_t>(const fp32_t X) {
+//    return _mm256_broadcast_ss(&X);
+//}
+
+template<> inline fp32_x8 load<fp32_x8, fp32_t>(const fp32_t *X) {
+    return _mm256_loadu_ps(X);
+}
+template<> inline fp32_x4 load<fp32_x4, fp32_t>(const fp32_t *X) {
+    return _mm_loadu_ps(X);
+}
+// fp32_t => bf16xN_t
+template<> inline bf16_x32 load<bf16_x32, fp32_t>(const fp32_t *X) {
+    auto x1 = _mm512_loadu_ps(X);
+    auto x2 = _mm512_loadu_ps(X+16);
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+template<> inline bf16_x8 load<bf16_x8, fp32_t>(const fp32_t *X) {
+    return _mm256_cvtneps_pbh(_mm256_loadu_ps(X));
+}
+// => bf16_t => bf16xN_t
+template<> inline bf16_x32 load<bf16_x32, bf16_t>(const bf16_t *X) {
+    return (__m512bh) _mm512_loadu_epi16(X);
+}
+template<> inline bf16_x16 load<bf16_x16, bf16_t>(const bf16_t *X) {
+    return (__m256bh) _mm256_loadu_epi16(X);
+}
+template<> inline bf16_x8 load<bf16_x8, bf16_t>(const bf16_t *X) {
+    return (__m128bh) _mm_loadu_epi16(X);
+}
+// f8_E4M3_t => bf16_x32
+template<> inline bf16_x32 load<bf16_x32, f8_E4M3_t>(const f8_E4M3_t *X) {
+    auto x = _mm256_loadu_epi8(X);
+    return llamafile_fp8_e4m3_to_bf16_avx512(x);
+}
+
+//------------------------------------------------------------------------------------
+// les madd : C = C+A*B
+// [jart]: template <typename T, typename U> inline U madd(T a, T b, U c) {
+inline constexpr fp32_x16 madd(const fp32_x16 C, const fp32_x16 A, const fp32_x16 B) {
+    return _mm512_fmadd_ps(C, A, B);
+}
+inline constexpr fp32_x16 madd(const fp32_x16 C, const fp32_x16 A, const float B) {
+    return C + A*B;
+}
+inline constexpr fp32_x16 madd(const fp32_x16 C, const bf16_x32 A, const bf16_x32 B) {
+    return _mm512_dpbf16_ps(C, A, B);
+}
+
+//------------------------------------------------------------------------------------
+// les broadcasts : propager des valeur dans tous le registre
+inline constexpr bf16_x32 broadcast_2x(const bf16_t *X, size_t i) {
+    float* _X = (float*) X;
+    auto res = _mm512_set1_ps(*(_X+i/2));
+    return (__m512bh) res;
+}
+
+//------------------------------------------------------------------------------------
+// les shifts : decaler des valeurs dans les registres

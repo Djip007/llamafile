@@ -1,19 +1,7 @@
 //------------------------------------------------------------------------------------
-// Tools
-// - se deplacer dans un buffer en nombre de byte
-template<typename T>
-static inline T* add_byte(void* addr, std::size_t nb) {
-    return (T*) (((char*)addr)+nb);
-}
-template<typename T>
-static inline const T* const_add_byte(const void * addr, std::size_t nb) {
-    return (const T*) (((const char*)addr)+nb);
-}
-
-//------------------------------------------------------------------------------------
 // gestion de Matrice (en attandant mieux)
 // @ mettre au propre: K<>m M<>n
-// => TODO gerer des bloc de taille [K1,M1] ...
+// => TODO gerer des bloc de taille [K1,M1,N1] ??? ...
 
 enum class Scale {
     NONE,
@@ -30,7 +18,16 @@ constexpr std::string to_string(Scale s) {
 }
 }
 
-template<typename T, size_t K=1, size_t M=1, Scale SCALE=Scale::NONE>
+// stockage @ gerer:
+//  A[ 0][ 0][ 0][K][M]
+//  A[ 1][ 1][ 0][K][M] ???
+//  A[K0][ 1][ 0][K/K0][M]
+//  A[K0][M0][ 0][K/K0][M/M0]
+//  A[K0][M0][K1][M/M0][K/K0*K1]  ??? que faire si  K%(K0*K1)!=0
+//     => le dernier bloc K == [K0][M0][K%(K0*K1)][M/M0] ...
+
+//template<typename T, size_t K0=1, size_t M0=1, size_t K1=0, Scale SCALE=Scale::NONE>
+template<typename T, size_t K0=1, size_t M0=1, Scale SCALE=Scale::NONE>
 class Matrice {
 public:
     // qq-aides:
@@ -65,13 +62,13 @@ public:
     T* m_values;  // suivant le format ca peut-etre une copie!
     float* m_scale=nullptr;
 
-    inline Matrice(T* v, std::size_t m, std::size_t n, std::size_t l): m_m(m), m_n(n), m_l((K*M==1)?l:m*K*M),
+    inline Matrice(T* v, std::size_t m, std::size_t n, std::size_t l): m_m(m), m_n(n), m_l((K0*M0==1)?l:m*K0*M0),
             m_values(data_adr(v,n)),
             m_scale(scale_adr(v))
     {
         static_assert(SCALE==Scale::NONE);
-        static_assert(K>0);
-        static_assert(M>0);
+        static_assert(K0>0);
+        static_assert(M0>0);
     }
 
     // un buffer avec le meme format que le tenseur
@@ -81,20 +78,20 @@ public:
             m_values(data_adr(data,t->ne[1])),
             m_scale(scale_adr(data))
     {
-        static_assert(K==1);
-        static_assert(M==1);
+        static_assert(K0==1);
+        static_assert(M0==1);
         GGML_ASSERT(t->ne[2]==1);
         GGML_ASSERT(t->ne[3]==1);
     }
 
     inline Matrice(struct ggml_tensor * t):
             m_m(t->ne[0]), m_n(t->ne[1]),
-            m_l((K*M==1)?(t->nb[1]/t->nb[0]):t->ne[0]*M),
+            m_l((K0*M0==1)?(t->nb[1]/t->nb[0]):t->ne[0]*M0),
             m_values(data_adr(t->data,t->ne[1])),
             m_scale(scale_adr(t->data))
     {
-        static_assert(K>0);
-        static_assert(M>0);
+        static_assert(K0>0);
+        static_assert(M0>0);
         GGML_ASSERT(t->ne[2]==1);
         GGML_ASSERT(t->ne[3]==1);
         //GGML_ASSERT((sizeof(T)*m_m*m_n)<=ggml_nbytes(t));
@@ -106,7 +103,7 @@ public:
             m_scale(scale_adr(t->data))
     {
         // pas (encore) utilisable pour les empilements de matrice non native!
-        static_assert(M==1);
+        static_assert(M0==1);
     }
 
     inline void set_scale(float val, size_t j=0) {
@@ -119,43 +116,50 @@ public:
         if constexpr(SCALE==Scale::PER_COL) return m_scale+j; // float[j,...]
         if constexpr(SCALE==Scale::NONE) return (float)1;
     }
+    template<int N>
+    inline auto get_scale_v(size_t j) const {
+        static_assert(SCALE==Scale::PER_COL); // voir pour les autres....
+        if constexpr(SCALE==Scale::GLOBAL)  return _mm512_set1_ps (*m_scale);
+        if constexpr(SCALE==Scale::PER_COL) return load<typename type_t<fp32_t, N>::t>(m_scale+j); // float[j,...]
+        if constexpr(SCALE==Scale::NONE)    return _mm512_set1_ps ((float)1);
+    }
 
     // get_scale<vector>
 
     inline T& operator()(size_t i, size_t j) {
-        const auto i0 = i%K; const auto i1 = i/K;
-        const auto j0 = j%M; const auto j1 = j/M;
-        return m_values[j1*m_l+j0*K+i1*K*M+i0];
+        const auto i0 = i%K0; const auto i1 = i/K0;
+        const auto j0 = j%M0; const auto j1 = j/M0;
+        return m_values[j1*m_l+j0*K0+i1*K0*M0+i0];
     }
     inline const T operator()(size_t i, size_t j) const {
-        const auto i0 = i%K; const auto i1 = i/K;
-        const auto j0 = j%M; const auto j1 = j/M;
-        return m_values[j1*m_l+j0*K+i1*K*M+i0];
+        const auto i0 = i%K0; const auto i1 = i/K0;
+        const auto j0 = j%M0; const auto j1 = j/M0;
+        return m_values[j1*m_l+j0*K0+i1*K0*M0+i0];
     }
 
     inline T* addr(size_t i, size_t j) {
-        if constexpr(K>1 || M>1) {
+        if constexpr(K0>1 || M0>1) {
             // pas une bonne idée de taper en dehors d'un bloc complet,
             //GGML_ASSERT(i<m_m);
             //GGML_ASSERT(j<m_n);
             //GGML_ASSERT(j%M==0);
             //GGML_ASSERT(i%K==0);
             //GGML_ASSERT(j%M==0);
-            const auto i1 = i/K;
-            const auto j1 = j/M;
-            return m_values+j1*m_l+i1*K*M;
+            const auto i1 = i/K0;
+            const auto j1 = j/M0;
+            return m_values+j1*m_l+i1*K0*M0;
         } else {
             return m_values+j*m_l+i; // [j1*m_l+j0*K+i1*K*M+i0]
         }
     }
     inline const T* addr(size_t i, size_t j) const {
-        if constexpr(K>1 || M>1) {
+        if constexpr(K0>1 || M0>1) {
             // pas une bonne idée de taper en dehors d'un bloc complet,
             //GGML_ASSERT(i%K==0);
             //GGML_ASSERT(j%M==0);
-            const auto i1 = i/K;
-            const auto j1 = j/M;
-            return m_values+j1*m_l+i1*K*M;
+            const auto i1 = i/K0;
+            const auto j1 = j/M0;
+            return m_values+j1*m_l+i1*K0*M0;
         } else {
             return m_values+j*m_l+i; // [j1*m_l+j0*K+i1*K*M+i0]
         }

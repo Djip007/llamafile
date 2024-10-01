@@ -96,12 +96,12 @@ namespace ggml::bf16::op_matmul {
                 // chargement de A
 #pragma GCC unroll K1
                 for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..3]
-                    A[k1] = load(pA + k2*M0 + k1*M0*K0); // lda == K2*M0 ...
+                    A[k1] = load<__m512bh>(pA + k2*M0 + k1*M0*K0); // lda == K2*M0 ...
                 }
 #pragma GCC unroll N0
                 for (size_t j=0; j<N0; ++j) {  // [0..~16]
                     // on charge K1 valeur de B
-                    __m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
+                    __m128bh B = load<__m128bh>(pB+j*ldb+k2);
 #pragma GCC unroll K1
                     for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..4]
                         auto _B = _mm512_broadcastd_2pbh(B);

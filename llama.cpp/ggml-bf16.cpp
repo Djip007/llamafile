@@ -5,6 +5,17 @@ make clean
 make -j16
 make -j16 install PREFIX=/home/philou/LLM/usr/
 
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q8_0.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q6_K.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_M.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_S.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_M.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_S.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_L.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_M.llamafile
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_S.llamafile
+
 // trace des tenseurs
 GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
@@ -28,7 +39,7 @@ OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"
 > les miens
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16",      "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-# OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
 
 #>  pas toujours terrible avec un scale global...
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
@@ -378,6 +389,8 @@ namespace ggml::backend::bf16 {
 #include "ggml-bf16-sgemm.inc"
 // - cas block de BF16:
 #include "ggml-bf16-bloc.inc"
+// #include "ggml-bf16-bloc2.inc"
+#include "ggml-bf16-bloc3.inc"
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
@@ -880,7 +893,10 @@ namespace ggml::backend::bf16 {
                 ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,2,16,Scale::GLOBAL>());
                 ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t, Scale::GLOBAL>);
                 break;
-                // ...
+            case BACKEND_TYPE::E4M3_2x16_C:
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,2,16,Scale::PER_COL>());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_2<f8_E4M3_t, Scale::PER_COL>);
+                break;
             case BACKEND_TYPE::INVALID:
                 std::cout << " > ERREUR: BF16_Backend non connu"<< std::endl;
                 break;
