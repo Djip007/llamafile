@@ -165,8 +165,13 @@ template<typename T> constexpr float CORRECTION() {static_assert(false, "doit et
 // les conversion a implementer: T2 => T1
 //> conv(T1 dest, const T2 orig): dest = orig
 template<typename T1, typename T2> static inline void conv(T1& dest , const T2& orig) {dest = orig;}
-//> bf16x32_t load(T orig): T => bf16_x32
-//
+
+// @ voir a inverser les 2 cas... (le conv est pratique pour ne pas toujours avoir a definie T1
+template<typename T1, typename T2> static inline T1 conv_cast(const T2& orig){
+    T1 res;
+    conv(res,orig);
+    return res;
+}
 
 template<> constexpr float MAX<f8_E4M3_t>() {return 448;}
 // [...]

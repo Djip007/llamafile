@@ -105,8 +105,8 @@ static void sgemm_512_bloc(TA* A, TB* B, TC* C, size_t m, size_t n, size_t k, si
 }
 
 // dispache compute
-template<size_t M1, size_t N1, size_t M0, size_t N0, size_t K0=1024, typename TA, typename TB, typename TC, Scale SCALE>
-static inline void sgemm_512_bloc(const Matrice<TA,1,1,SCALE>& A, const Matrice<TB>& B, Matrice<TC>& C, size_t I0, size_t J0, bf16_t* B_) {
+template<size_t M1, size_t N1, size_t M0, size_t N0, size_t K0=1024, typename TA, typename TB, typename TC, Scale SCALE, size_t MA>
+static inline void sgemm_512_bloc(const Matrice<TA,32,MA,0,SCALE>& A, const Matrice<TB,32>& B, Matrice<TC,16>& C, size_t I0, size_t J0, bf16_t* B_) {
     const size_t IN = std::min(C.DIM1(), I0+M1*M0);
     const size_t JN = std::min(C.DIM2(), J0+N1*N0);
     const auto KN = A.DIM1(); // == B.DIM1()
@@ -150,9 +150,18 @@ static inline void sgemm_512_bloc(const Matrice<TA,1,1,SCALE>& A, const Matrice<
     }
 }
 
-template<typename TYPE_A, Scale SCALE>
+template<typename TYPE_A, size_t M0, Scale SCALE>
 class ggml_bf16_op_matmul : public ggml::backend::bf16::op {
 public:
+    // TODO: definir le type en fct du CPU AVX2/AVX512/BF16/FP32...
+    //  - pour l'instant tjs AVX512/BF16 !
+    virtual bool C_is_allowed(const struct ggml_tensor *C) {
+        return ggml::backend::bf16::tensor_type<fp32_t,16>()->is_allowed(C) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+    }
+    virtual bool B_is_allowed(const struct ggml_tensor *B) {
+        return ggml::backend::bf16::tensor_type<fp32_t,32>()->is_allowed(B) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+    }
+
     void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
         mesure time; time.start();
@@ -171,10 +180,9 @@ public:
                 const auto i02 = i12/r2;
 
                 // TODO: les bon packing...
-                // const Matrice<TYPE_A,32,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
-                const Matrice<TYPE_A,1,1,SCALE> A(src0,i02,i03);  // bf16_32x1!
-                const Matrice<fp32_t>           B(src1,i12,i13);  // fp32_32x1!
-                Matrice<fp32_t>                 C(dst,i12,i13);   // fp32_32x1!
+                const Matrice<TYPE_A,32,M0,0,SCALE> A(src0,i02,i03);  // bf16_32x1!
+                const Matrice<fp32_t,32>            B(src1,i12,i13);  // fp32_32x1!
+                Matrice<fp32_t,16>                  C(dst,i12,i13);   // fp32_16x1!
                 mul_mat(A, B, C);
             }}
 #ifdef DO_TIMING
@@ -186,14 +194,14 @@ public:
 #endif
     }
     //  - bf16+fp32=fp32
-    virtual void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const = 0;
+    virtual void mul_mat(const Matrice<TYPE_A,32,M0,0,SCALE>& A, const Matrice<fp32_t,32>& B, Matrice<fp32_t,16>& C) const = 0;
 };
 
 // K1 = 2560 5120 2048 4096 ...
 // compute for tg and small pp
-template<typename TYPE_A, Scale SCALE, size_t M0, size_t N0, size_t M1=4, size_t K1=2560>
-class ggml_bf16_op_matmul_tg : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
-    using parent = ggml_bf16_op_matmul<TYPE_A,SCALE>;
+template<typename TYPE_A, size_t MA, Scale SCALE, size_t M0, size_t N0, size_t M1=4, size_t K1=2560>
+class ggml_bf16_op_matmul_tg : public ggml_bf16_op_matmul<TYPE_A,MA,SCALE> {
+    using parent = ggml_bf16_op_matmul<TYPE_A,MA,SCALE>;
 public:
     bool B_is_allowed(const struct ggml_tensor *B) override {
         // limit for tg and small pp (<=N0)
@@ -208,10 +216,10 @@ public:
         }
         GGML_ASSERT(a!=nullptr);
         // on sais deja:
-        if (a == ggml::backend::bf16::tensor_type<TYPE_A,32,1,SCALE>()) return true;
+        if (a == ggml::backend::bf16::tensor_type<TYPE_A,32,MA,0,SCALE>()) return true;
         return false;
     }
-    void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
+    void mul_mat(const Matrice<TYPE_A,32,MA,0,SCALE>& A, const Matrice<fp32_t,32>& B, Matrice<fp32_t,16>& C) const override {
         const auto m = C.DIM1(); // == A.DIM2()
         const auto n = C.DIM2(); // == B.DIM2()
         const auto k = A.DIM1(); // == B.DIM1()
@@ -230,8 +238,8 @@ public:
 };
 
 // dispache for all pp size
-template<typename TYPE_A, Scale SCALE, size_t M0, size_t N0, size_t M1=8, size_t N1=4, size_t K1=2560>
-class ggml_bf16_op_matmul_pp : public ggml_bf16_op_matmul<TYPE_A,SCALE> {
+template<typename TYPE_A, size_t MA, Scale SCALE, size_t M0, size_t N0, size_t M1=8, size_t N1=4, size_t K1=2560>
+class ggml_bf16_op_matmul_pp : public ggml_bf16_op_matmul<TYPE_A, MA,SCALE> {
 public:
     // la derniere chance!
     bool A_is_allowed(const struct ggml_tensor *A) override {
@@ -242,10 +250,10 @@ public:
         }
         GGML_ASSERT(a!=nullptr);
         // on sais deja:
-        if (a == ggml::backend::bf16::tensor_type<TYPE_A,32,1,SCALE>()) return true;
+        if (a == ggml::backend::bf16::tensor_type<TYPE_A,32,MA,0,SCALE>()) return true;
         return false;
     }
-    void mul_mat(const Matrice<TYPE_A,1,1,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const override {
+    void mul_mat(const Matrice<TYPE_A,32,MA,0,SCALE>& A, const Matrice<fp32_t,32>& B, Matrice<fp32_t,16>& C) const override {
         const auto m = C.DIM1(); // == A.DIM2()
         const auto n = C.DIM2(); // == B.DIM2()
         const auto k = A.DIM1(); // == B.DIM1()

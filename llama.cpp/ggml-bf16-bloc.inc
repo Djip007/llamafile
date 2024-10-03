@@ -4,7 +4,7 @@
 
 namespace ggml::bf16::op_matmul {
     template<typename TYPE_A, Scale SCALE>
-    class bf16_2x16: public ggml::backend::bf16::op {
+    class bf16_2x16_G: public ggml::backend::bf16::op {
         // static constexpr auto SCALE = ggml::backend::bf16::type_of<TYPE_A>::SCALE;
         // OK c'est prometeur on sature la memoire avec 2 threads!
         // Pour aller plus vite il va faloir gerer les caches!
@@ -30,24 +30,26 @@ namespace ggml::bf16::op_matmul {
             mesure time; time.start();
 #endif
             // normalement ici les type sont deja controlé
-            const Matrice<TYPE_A,2,16,SCALE> A(op->src[0]);
-            const Matrice<fp32_t>            B(op->src[1]);
-            Matrice<fp32_t>                  C(op);
+            const Matrice<TYPE_A,2,16,0,SCALE> A(op->src[0]);
+            const Matrice<fp32_t,8>          B(op->src[1]);
+            Matrice<fp32_t,16>               C(op);
             mul_mat(A, B, C);
 #ifdef DO_TIMING
             auto dt = time.end();
-            std::cout << " bf16_2x16> " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name << " => "
+            std::cout << " bf16_2x16_G> " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name << " => "
                     << dt*1000000 << " us / "
                     << (1e-9*2*op->ne[0]*op->ne[1]*op->src[1]->ne[0])/dt << " GFlops/s"
                     << std::endl;
 #endif
         }
 
-        // voir si on fait plusieurs cas 16xN  32xN...
-        //bool B_is_allowed(const struct ggml_tensor *B) override {
-        //    // aussi possible avec ggml::backend::bf16::tensor_fp32_8x1_t
-        //    return ggml_bf16_op_matmul::B_is_allowed(B);
-        //}
+        // pour l'instant tjs des type FP32 natif ... pas le choix et y en a pas d'autre!
+        bool C_is_allowed(const struct ggml_tensor *C) override {
+            return ggml::backend::bf16::tensor_type<fp32_t,16>()->is_allowed(C) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+        }
+        bool B_is_allowed(const struct ggml_tensor *B) override {
+            return ggml::backend::bf16::tensor_type<fp32_t,8>()->is_allowed(B) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+        }
         bool A_is_allowed(const struct ggml_tensor *A) override {
             auto a = ggml::backend::bf16::Tensor_t::GET(A);
             if(!a && A->view_src) {
@@ -61,7 +63,7 @@ namespace ggml::bf16::op_matmul {
             }
             GGML_ASSERT(a!=nullptr);
             // on sais deja:
-            if (a == ggml::backend::bf16::tensor_type<TYPE_A,2,16,SCALE>()) return true;
+            if (a == ggml::backend::bf16::tensor_type<TYPE_A,2,16,0,SCALE>()) return true;
             return false;
         }
 
@@ -69,7 +71,7 @@ namespace ggml::bf16::op_matmul {
         //   pas le plus performant possible mais de quoi faire qq tests
         //  => K0/M0 sont alors fixé pour A!
         template<size_t N0, typename TA, typename TB, typename TC>
-        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t lda, std::size_t ldb, std::size_t ldc, std::size_t K2, float scale) {
+        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t ldb, std::size_t ldc, std::size_t K2, float scale) {
             // lda: comment passer de A[k,i] => A[k,i+M1]
             // ldb: comment passer de B[k,j] => B[k,j+1]
             // ldc: comment passer de C[i,j] => C[i,j+1]
@@ -86,7 +88,6 @@ namespace ggml::bf16::op_matmul {
             __m512   C[N0];    // m512   == fp32[M0]
             __m512bh A[K1/K0]; // m512bh == bf16[M0][K0]
 
-            //std::cout << "  - 0" << std::endl;
 #pragma GCC unroll N0
             for(size_t j=0; j<N0; j++) {
                 C[j] = _mm512_setzero_ps();
@@ -106,7 +107,6 @@ namespace ggml::bf16::op_matmul {
                     for (size_t k1=0; k1<K1/K0; ++k1) {  // [0..4]
                         auto _B = _mm512_broadcastd_2pbh(B);
                         B = _mm_shiftl_2pbh(B);
-                        // C[j] = madd(A[k1], _B, C[j]);
                         C[j] = _mm512_dpbf16_ps(C[j], A[k1], _B);
                     }
                 }
@@ -120,42 +120,31 @@ namespace ggml::bf16::op_matmul {
         }
 
         template<size_t N0, size_t M0, size_t K0>
-        inline void sgemm_bloc(const Matrice<TYPE_A,K0,M0,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C, size_t i, size_t j, size_t N, size_t K) const {
+        inline void sgemm_bloc(const Matrice<TYPE_A,K0,M0,0,SCALE>& A, const Matrice<fp32_t,8>& B, Matrice<fp32_t,16>& C, size_t i, size_t j, size_t N, size_t K) const {
             static_assert(N0<=16);
             switch (N) {
-                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
                 default: break;
             }
-            // std::cout << "    N="<<N<<"/"<<N0<< std::endl;
-            /*
-            if (N==N0) {
-                // calcule
-                gemm<N0>(A.addr(0,i),B.addr(0,j),C.addr(i,j),A.LD(),B.LD(),C.LD(), K);
-                return;
-            }
-            if constexpr (N0>1) { // arret de la recursion
-                sgemm_bloc<N0-1,M0,K0>(A, B, C, i, j, N, K);
-            }
-            */
         }
 
         template<size_t K0, size_t M0>
-        void mul_mat(const Matrice<TYPE_A,K0,M0,SCALE>& A, const Matrice<fp32_t>& B, Matrice<fp32_t>& C) const {
+        void mul_mat(const Matrice<TYPE_A,K0,M0,0,SCALE>& A, const Matrice<fp32_t,8>& B, Matrice<fp32_t,16>& C) const {
             static_assert(K0==2);
             static_assert(M0==16);
             const auto m = C.DIM1(); // == A.DIM2()
@@ -163,18 +152,12 @@ namespace ggml::bf16::op_matmul {
             const auto k = A.DIM1(); // == B.DIM1()
             // K0 = 2; M0 = 16; !!!
             constexpr size_t N0 = 16;
-            constexpr size_t M1 =  2;
+            constexpr size_t M1 =  4;
 
-            //#pragma omp parallel for private(B_cache) schedule(guided)
-            // bool premier = true;
-            //#pragma omp parallel for private(premier) private(B_cache) schedule(guided)
-            // TODO: faire qq teste avec OpenMP
 #pragma omp parallel for schedule(guided)
             for (size_t i=0; i<m; i+=M1*M0) {
                 for (size_t j=0; j<n; j+=N0) {
                     const auto N = std::min(n-j,N0);
-                    // TODO: premier => mettre B<bf16> en cache
-#pragma GCC unroll 8
                     for (size_t i2=0; i2<M1*M0; i2+=M0) {
                         sgemm_bloc<N0,M0,K0>(A, B, C, i+i2, j, N, k);
                     }

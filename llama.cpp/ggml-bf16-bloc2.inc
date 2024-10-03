@@ -63,7 +63,7 @@ namespace ggml::bf16::op_matmul {
             }
             GGML_ASSERT(a!=nullptr);
             // on sais deja:
-            if (a == ggml::backend::bf16::tensor_type<TYPE_A,2,16,SCALE>()) return true;
+            if (a == ggml::backend::bf16::tensor_type<TYPE_A,2,16,0,SCALE>()) return true;
             return false;
         }
 
