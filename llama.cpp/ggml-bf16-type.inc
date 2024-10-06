@@ -452,7 +452,7 @@ template<> inline bf16_x32 load<bf16_x32, f8_E4M3_t>(const f8_E4M3_t *X) {
 // les madd : C = C+A*B
 // [jart]: template <typename T, typename U> inline U madd(T a, T b, U c) {
 inline constexpr fp32_x16 madd(const fp32_x16 C, const fp32_x16 A, const fp32_x16 B) {
-    return _mm512_fmadd_ps(C, A, B);
+    return _mm512_fmadd_ps(A, B, C);
 }
 inline constexpr fp32_x16 madd(const fp32_x16 C, const fp32_x16 A, const float B) {
     return C + A*B;

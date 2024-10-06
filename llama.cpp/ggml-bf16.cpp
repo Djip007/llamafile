@@ -78,7 +78,10 @@ GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",  "BF16_32x1_5x5"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' OMP_NUM_THREADS=8 \
-./usr/bin/llamafile-perplexity -m Mistral-Nemo-Instruct-2407.BF16.gguf -f wikitext-2-raw/wiki.valid.raw -s 31337
+GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+
+# ./usr/bin/llamafile-perplexity -m Mistral-Nemo-Instruct-2407.BF16.gguf -f wikitext-2-raw/wiki.valid.raw -s 31337
 
  */
 
@@ -463,7 +466,8 @@ namespace ggml::backend::bf16 {
 #include "ggml-bf16-bloc.inc"
 // #include "ggml-bf16-bloc2.inc"
 // #include "ggml-bf16-bloc3.inc"
-#include "ggml-bf16-bloc4.inc"
+// #include "ggml-bf16-bloc4.inc"
+#include "ggml-bf16-bloc5.inc"
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
