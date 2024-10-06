@@ -25,9 +25,7 @@ TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:13421772
 
 > run: une fois implementé
 export RUN="./usr/bin/llamafile -m Mistral-7B-Instruct-v0.3.BF16.gguf   -c 128 -n 16 -t 0 -s 42 -p "
-export RUN="./usr/bin/lexport RUN="./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -s 42 -p "
-export RUN_ARGS="[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-lamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -s 42 -p "
+export RUN="./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -s 42 -p "
 export RUN_ARGS="[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 > les [jart]
@@ -35,18 +33,24 @@ $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["NONE     "]'                           $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'                       $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_4x6"]'                       $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
 
 > les miens
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16",      "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16"                  ]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3N_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
 
-#>  pas toujours terrible avec un scale global...
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",     "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
+#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16",                   "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["E4M3_2x16",      "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
 
 
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
@@ -143,6 +147,7 @@ namespace ggml::backend::bf16 {
         const std::string NAME;
         enum class COMPAT {
             NATIVE,
+            REODER,
             CONVERT,
             NONE
         };
@@ -169,17 +174,33 @@ namespace ggml::backend::bf16 {
         COMPAT is_allowed(const struct ggml_tensor *op) override { return COMPAT::NATIVE; }
         size_t get_alloc_size(const struct ggml_tensor * tensor) override { return ggml_nbytes(tensor); }
         virtual void set_tensor(struct ggml_tensor * tensor, const void * data, std::size_t offset, std::size_t size) {
+            // std::cout << "SET_TENSOR> " <<tensor->name<< " : "<< this->NAME << std::endl;
             memcpy((char *)tensor->data + offset, data, size);
         }
     };
 
     // de quoi gerer les tenseurs de type simple
-    template<typename T, int K0=1, int M0=0, int K1=0, Scale SCALE=Scale::NONE>
+    template<typename T,
+    std::size_t K0=1, std::size_t M0=0, std::size_t K1=0,
+    Scale SCALE=Scale::NONE, std::size_t MB=0, std::size_t KB=0>
     class tensor : public Tensor_t {
+    public:
         using type_t = T;
-        using matrice_t = Matrice<T,K0,M0,K1,SCALE>;
+        using matrice_t = Matrice<T,K0,M0,K1,SCALE,MB,KB>;
+    private:
         static constexpr auto _T = type_of<T>::T;
         static constexpr auto _G = type_of<T>::G;
+
+    public:
+        static constexpr Tensor_t* type() {
+            static tensor s_type("tensor<"+std::to_string<T>()
+                    +","+std::to_string(K0)+","+std::to_string(M0)+","+std::to_string(K1)
+                    +","+std::to_string(SCALE)
+                    +(SCALE!=Scale::BLOC?"":("["+std::to_string(KB)+":"+std::to_string(MB)+"]"))
+                    +">");
+            return &s_type;
+        }
+
     public:
         // "constant" => WEIGHT => changement de type et repack possible!
         tensor(const std::string name) : Tensor_t(name) {}
@@ -187,31 +208,38 @@ namespace ggml::backend::bf16 {
         // les "proprietes:
         //  - est-ce qu'il est possible depuis ce type de tenseur
         //  Il faut que la "conversion" existe!
+        // NATIVE,
+        // REODER,
+        // CONVERT,
+
         COMPAT is_allowed(const struct ggml_tensor *op) override {
             // - possible sans pading (voir si on autoriserais pas un peu de pading si ca arrive)
             if (op->ne[0]%K0 != 0) return COMPAT::NONE;
-            if constexpr(K1>0) {
-                // pour l'instant bloc [][][K1/K0][M0][K0] "complet"
-                if (op->ne[0]%K1 != 0) return COMPAT::NONE;
-            }
             // - est-ce possible avec les données d'origines.
-            if constexpr (M0==1 && K1==0) {
+            // K0/K1/KM M0/MB
+            if constexpr (M0==0 && K1==0) {
+                // Voir pour les fp8 avec des scale-factore
                 if (op->type == _G) {
                     // si c'est contigue c'est bon...
                     if (ggml_is_contiguous(op)) return COMPAT::NATIVE;
                 }
             }
 
-            // OK est-ce possible avec une conversion:
+            // OK est-ce possible avec une conversion / reshape:
             //  => seulement si c'est un poids!
             if ( (op->flags & GGML_TENSOR_FLAG_WEIGHTS) == GGML_TENSOR_FLAG_WEIGHTS ) {
-                // - possible sans pading
-                if (op->ne[1]%M0 != 0) return COMPAT::NONE;
                 // - 2D simple (voir comment gerer les autres cas...)
+                if (op->ne[0] < 2) return COMPAT::NONE;
+                if (op->ne[1] < 2) return COMPAT::NONE;
                 if (op->ne[2] != 1) return COMPAT::NONE;
                 if (op->ne[3] != 1) return COMPAT::NONE;
+                // - possible sans pading
+                if constexpr(M0>0) { if (op->ne[1]%M0 != 0) return COMPAT::NONE; }
+                if constexpr(K1>0) { if (op->ne[0]%K1 != 0) return COMPAT::NONE; }
+
                 // - simple re-order...
-                if (op->type == _G) return COMPAT::CONVERT;
+                if (op->type == _G) return COMPAT::REODER;
+
                 // - conversion de type ceux que l'on sais faire pour l'instant:
                 if constexpr (_T == TYPE::FP32) {
                     switch (op->type) {
@@ -220,26 +248,24 @@ namespace ggml::backend::bf16 {
                         // @voir un peu bete... et pas codé encore
                         break;
                     }
-                } else
-                    if constexpr (_T == TYPE::BF16) {
-                        switch (op->type) {
-                        case GGML_TYPE_F32:  // fp32 => bf16
-                            return COMPAT::CONVERT;
-                        case GGML_TYPE_F16:  // fp16 => bf16
-                            break; // @ voir...
-                        }
-                    } else
-                        if constexpr ((_T == TYPE::E3M4) || (_T == TYPE::E4M3) || (_T == TYPE::E5M2)) {
-                            switch (op->type) {
-                            case GGML_TYPE_F32:     // fp32 => fp8_
-                            case GGML_TYPE_BF16:    // bf16 => fp8_
-                                return COMPAT::CONVERT;
-                            case GGML_TYPE_F16:     // fp16 => fp8_
-                                break; // TODO:...
-                            }
-                        } else {
-                            static_assert(false, "TYPE non supporté");
-                        }
+                } else if constexpr (_T == TYPE::BF16) {
+                    switch (op->type) {
+                    case GGML_TYPE_F32:  // fp32 => bf16
+                        return COMPAT::CONVERT;
+                    case GGML_TYPE_F16:  // fp16 => bf16
+                        break; // @ voir...
+                    }
+                } else if constexpr ((_T == TYPE::E3M4) || (_T == TYPE::E4M3) || (_T == TYPE::E5M2)) {
+                    switch (op->type) {
+                    case GGML_TYPE_F32:     // fp32 => fp8_
+                    case GGML_TYPE_BF16:    // bf16 => fp8_
+                        return COMPAT::CONVERT;
+                    case GGML_TYPE_F16:     // fp16 => fp8_
+                        break; // TODO:...
+                    }
+                } else {
+                    static_assert(false, "TYPE non supporté");
+                }
             }
             return COMPAT::NONE;
         }
@@ -247,12 +273,17 @@ namespace ggml::backend::bf16 {
         // - quel taille faut-il pour stoquer ces données?
         inline size_t get_alloc_size(const struct ggml_tensor * tensor) {
             GGML_ASSERT(is_allowed(tensor) != COMPAT::NONE); // normalement NONE est traité par AnyTensor
-            return Matrice<T,K0,M0,K1,SCALE>::size(tensor);
+            if constexpr (M0==0 && K0==0) {
+                if (tensor->type == _G) {
+                    return ggml_nbytes(tensor);
+                }
+            }
+            return matrice_t::size(tensor);
         }
 
         //  set:
         inline void set_tensor(struct ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
-            if constexpr (M0==1 && K0==0) {
+            if constexpr (M0==0 && K0==0) {
                 if (tensor->type == _G) {
                     // pas de conversion a faire:
                     memcpy((char *)tensor->data + offset, data, size);
@@ -279,6 +310,7 @@ namespace ggml::backend::bf16 {
                 set_tensor<bf16_t>(tensor, data);
                 break;
                 //case GGML_TYPE_F16:  // TODO et sans probleme pour les conversion en fp8_
+                //    set_tensor<fp16_t>(tensor, data);
                 //    break;
             default:
                 std::cout << "Type pas gere: " << __PRETTY_FUNCTION__ << tensor->name << tensor << std::endl;
@@ -289,47 +321,79 @@ namespace ggml::backend::bf16 {
     private:
         template<typename T2>
         void set_tensor(struct ggml_tensor * tensor, const void * data) {
-            Matrice<T,K0,M0,K1,SCALE> dest(tensor);
+            //std::cout << "SET_TENSOR> " <<tensor->name<< " : "<< this->NAME << std::endl;
+            matrice_t dest(tensor);
             const Matrice<const T2> orig(data, tensor);
             if constexpr(SCALE == Scale::NONE) {
+                //std::cout << "n" << std::flush;
 #pragma omp parallel for schedule(guided)
                 for (int j=0; j<orig.DIM2(); j++)
                     for (int i=0; i<orig.DIM1(); i++)
                         //dest(i,j) = conv_cast<?>(orig(i,j));
                         conv(dest(i,j), orig(i,j));
             }
-            if constexpr(SCALE == Scale::GLOBAL) {
-                // le facteur global
-                auto max = orig.max();
-                float scale = MAX<T>()/max;
-                dest.set_scale((max/MAX<T>())*CORRECTION<T>());
-#pragma omp parallel for schedule(guided)
-                for (int j=0; j<orig.DIM2(); j++)
-                    for (int i=0; i<orig.DIM1(); i++)
-                        conv(dest(i,j), scale*conv_cast<float>(orig(i,j)));
-            }
-            if constexpr(SCALE==Scale::PER_COL) {
-#pragma omp parallel for schedule(guided)
-                for (int j=0; j<orig.DIM2(); j++) {
-                    // 1 coef par colonne
-                    auto max = orig.max(j);
-                    float scale = MAX<T>()/max;
-                    dest.set_scale((max/MAX<T>())*CORRECTION<T>(),j);
-                    for (int i=0; i<orig.DIM1(); i++)
-                        conv(dest(i,j), scale*conv_cast<float>(orig(i,j)));
-                }
-            }
-            if constexpr(SCALE==Scale::PER_BLOC) {
-#pragma omp parallel for schedule(guided)
-                for (int j=0; j<orig.DIM2(); j++) {
-                    for (int k=0; k<orig.DIM1(); k+=K1) {
-                        // forcement des blocs [K1/K0][M0][K0] => 1 coef par "bloc"
-                        auto max = orig.template max<K1>(k,j);
-                        float scale = MAX<T>()/max;
-                        dest.set_scale((max/MAX<T>())*CORRECTION<T>(),j,k);
-                        for (int i=0; i<K1; i++)
-                            conv(dest(i+k,j), scale*conv_cast<float>(orig(i+k,j)));
+            if constexpr(SCALE==Scale::BLOC) {
+                if constexpr(KB==0 && MB==0) { // scale global
+                    const float max = orig.max();
+                    const float scale = MAX<T>()/max;
+                    const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                    //dest.set_scale((max/MAX<T>())*CORRECTION<T>(),0,0);
+                    dest.set_scale(inv_scale,0,0);
+                    //std::cout << "g" << std::flush;
+#pragma omp parallel for schedule(guided) shared(dest,orig,scale)
+                    for (int j=0; j<orig.DIM2(); j++) {
+                        for (int i=0; i<orig.DIM1(); i++)
+                            conv(dest(i,j), scale*conv_cast<float>(orig(i,j)));
                     }
+                    //std::cout << "  - conversion OK"<< std::endl;
+                }
+                if constexpr(KB==0 && MB>0) { // sur tout la colonne
+                    //std::cout << "c" << std::flush;
+#pragma omp parallel for schedule(guided)
+                    for (int j0=0; j0<orig.DIM2(); j0+=MB) {
+                        // 1 coef par colonne
+                        const float max = orig.template max<KB,MB>(0,j0);
+                        const float scale = MAX<T>()/max;
+                        const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                        //dest.set_scale((max/MAX<T>())*CORRECTION<T>(),0,j0);
+                        dest.set_scale(inv_scale,0,j0);
+                        const auto n_end = std::min(orig.DIM2(), j0+MB);
+                        for (int j=j0; j<n_end; j++)
+                            for (int i=0; i<orig.DIM1(); i++)
+                                conv(dest(i,j), scale*conv_cast<float>(orig(i,j)));
+                    }
+                }
+                if constexpr(MB==0 && KB>0) { // sur tout la ligne
+                    //std::cout << "l" << std::flush;
+#pragma omp parallel for schedule(guided)
+                    for (int i0=0; i0<orig.DIM1(); i0+=KB) {
+                        // 1 coef par ligne
+                        const float max = orig.template max<KB,MB>(i0,0);
+                        const float scale = MAX<T>()/max;
+                        const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                        dest.set_scale(inv_scale,i0,0);
+                        const auto m_end = std::min(orig.DIM1(), i0+KB);
+                        for (int i=i0; i<m_end; i++)
+                            for (int j=0; j<orig.DIM2(); j++)
+                                conv(dest(i,j), scale*conv_cast<float>(orig(i,j)));
+                    }
+                }
+                if constexpr(KB>0 && MB>0) { // sur de vrai blocs
+                    //std::cout << "b" << std::flush;
+#pragma omp parallel for schedule(guided)
+                    for (int i0=0; i0<orig.DIM2(); i0+=MB)
+                        for (int k0=0; k0<orig.DIM1(); k0+=KB) {
+                            // 1 coef par bloc
+                            const float max = orig.template max<KB,MB>(k0,i0);
+                            const float scale = MAX<T>()/max;
+                            const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                            dest.set_scale(inv_scale,k0,i0);
+                            const auto k_end = std::min(orig.DIM1(), k0+KB);
+                            const auto m_end = std::min(orig.DIM2(), i0+MB);
+                            for (int i=i0; i<m_end; i++)
+                                for (int k=k0; k<k_end; k++)
+                                    conv(dest(k,i), scale*conv_cast<float>(orig(k,i)));
+                        }
                 }
             }
         }
@@ -339,13 +403,6 @@ namespace ggml::backend::bf16 {
     // TODO: ajouter const ...
     // - les tenseur que l'on ne peu/sais pas gerer.
     static AnyTensor tensor_non_supporte_t;
-
-    // singleton sur les types de template.
-    template<typename T, int K0=1, int M0=1, int K1=0, Scale SCALE=Scale::NONE>
-    static constexpr Tensor_t* tensor_type() {
-        static tensor<T,K0,M0,K1,SCALE> type("tensor<"+std::to_string<T>()+","+std::to_string(K0)+","+std::to_string(M0)+","+std::to_string(K1)+","+std::to_string(SCALE)+">");
-        return &type;
-    }
 
     // la liste que l'on a le droit d'utiliser, dans l'ordre de priorité:
     static std::list<Tensor_t*> tensors;
@@ -366,12 +423,10 @@ namespace ggml::backend::bf16 {
         }
 
         // pour l'instant tjs des type FP32 natif ... pas le choix et y en a pas d'autre!
-        virtual bool C_is_allowed(const struct ggml_tensor *C) {
-            return tensor_type<fp32_t,32>()->is_allowed(C) == Tensor_t::COMPAT::NATIVE;
-        }
-        virtual bool B_is_allowed(const struct ggml_tensor *B) {
-            return tensor_type<fp32_t,32>()->is_allowed(B) == Tensor_t::COMPAT::NATIVE;
-        }
+        virtual bool C_is_allowed(const struct ggml_tensor *C) = 0;
+        // { return tensor_type<fp32_t,32>()->is_allowed(C) == Tensor_t::COMPAT::NATIVE; }
+        virtual bool B_is_allowed(const struct ggml_tensor *B) = 0;
+        // { return tensor_type<fp32_t,32>()->is_allowed(B) == Tensor_t::COMPAT::NATIVE;}
         virtual bool A_is_allowed(const struct ggml_tensor *A) = 0;
         // - compute
         virtual void exec(struct ggml_tensor *op) const = 0;
@@ -407,7 +462,8 @@ namespace ggml::backend::bf16 {
 //  > gere que les scales global => @ suprimer
 #include "ggml-bf16-bloc.inc"
 // #include "ggml-bf16-bloc2.inc"
-#include "ggml-bf16-bloc3.inc"
+// #include "ggml-bf16-bloc3.inc"
+#include "ggml-bf16-bloc4.inc"
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
@@ -435,15 +491,27 @@ namespace ggml::backend::bf16::buffer {
         // - https://huggingface.co/neuralmagic/Mistral-Nemo-Instruct-2407-FP8/tree/main?show_file_info=model-00003-of-00003.safetensors
         // - https://huggingface.co/lmstudio-community/Mistral-Nemo-Instruct-2407-GGUF/tree/main?show_file_info=Mistral-Nemo-Instruct-2407-Q8_0.gguf
         // @ voir si on les met dans le JSON de config...
-        static constexpr std::list<std::string> LIST_WEIGHT() { return {
-            "fn_down.weight",
-            "fn_gate.weight",
-            "fn_up.weight",
+        static constexpr std::list<std::string> LIST_WEIGHT_CONVERT() { return {
+            "ffn_down.weight",
+            "ffn_gate.weight",
+            "ffn_up.weight",
             "ttn_k.weight",
             "ttn_q.weight",
             "ttn_v.weight",
             "ttn_output.weight",
         };}
+        static constexpr std::list<std::string> LIST_WEIGHT_REORDER() { return {
+            "ffn_down.weight",
+            "ffn_gate.weight",
+            "ffn_up.weight",
+            "ttn_k.weight",
+            "ttn_q.weight",
+            "ttn_v.weight",
+            "ttn_output.weight",
+            "output.weight",
+        };}
+// transforme: tensor<bf16_t,32,0,0,NONE>+output.weight[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16
+        // pas convertible mais OK pour reformater ???
         /*
 //  pour les couches:
 blk.0.ffn_down.weight    [14 336, 5 120] +Q8_0
@@ -460,28 +528,45 @@ blk.0.attn_norm.weight   [5 120]         -F32
 //  ???
          */
         inline static ggml::backend::bf16::Tensor_t* get_tensor_type(const ggml_tensor * tensor) {
+            // on a un choix a faire => on prand le 1er possible.
             for (auto t : ggml::backend::bf16::tensors ) {
-                //std::cout << " ? " << t->NAME << ":" << (int)t->is_allowed(tensor) << std::endl;
+                // std::cout << " ? " << t->NAME << ":" << (int)t->is_allowed(tensor) << std::endl;
                 switch (t->is_allowed(tensor)) {
                 case ggml::backend::bf16::Tensor_t::COMPAT::CONVERT:
                 {
                     // un peu long de le laisser ici mais que les poids => fait 1 seule fois a l'init
                     const std::string name = ggml_get_name(tensor);
-                    for (auto patern: LIST_WEIGHT()) {
+                    for (auto patern: LIST_WEIGHT_CONVERT()) {
                         if (name.find(patern) != std::string::npos) {
-                            // std::cout << "transforme: " <<t->NAME<<":"<<tensor->name<< tensor << std::endl;
+                            //std::cout << "transforme: " <<t->NAME<<":"<<tensor->name<< tensor << std::endl;
                             return t;
                         }
                     }
-                    //std::cout << "transforme pas possible: " <<t->NAME<<"?"<<tensor->name<< tensor << std::endl;
+                    // TODO: en faire une trace
+                    std::cout << "convertion pas autorisé: " <<t->NAME<<"?"<<tensor->name<< tensor << std::endl;
+                }
+                break;
+                case ggml::backend::bf16::Tensor_t::COMPAT::REODER:
+                {
+                    // un peu long de le laisser ici mais que les poids => fait 1 seule fois a l'init
+                    const std::string name = ggml_get_name(tensor);
+                    for (auto patern: LIST_WEIGHT_REORDER()) {
+                        if (name.find(patern) != std::string::npos) {
+                            //std::cout << "transforme: " <<t->NAME<<":"<<tensor->name<< tensor << std::endl;
+                            return t;
+                        }
+                    }
+                    // TODO: en faire une trace
+                    std::cout << "re-order pas autorisé: " <<t->NAME<<"?"<<tensor->name<< tensor << std::endl;
                 }
                 break;
                 case ggml::backend::bf16::Tensor_t::COMPAT::NATIVE:
-                    //std::cout << "transforme: " <<t->NAME<<"+"<<tensor->name<< tensor << std::endl;
+                    // std::cout << "transforme: " <<t->NAME<<"+"<<tensor->name<< tensor << std::endl;
                     return t;
                     break;
                 }
             }
+            std::cout << "+transforme: " <<ggml::backend::bf16::tensor_non_supporte_t.NAME<<"+"<<tensor->name<< tensor << std::endl;
             return &ggml::backend::bf16::tensor_non_supporte_t;
         }
         // l'interface: ggml_backend_buffer_i
@@ -714,6 +799,11 @@ namespace ggml::backend::bf16 {
             //  - les poids sont converti si besoin (par set_buffer)
             // reste donc a selectioner l'OP compatible!
             if (op->op == GGML_OP_MUL_MAT) {
+                //std::cout << "SUPPORTED> " <<op->op<<"@"<<op->name<< " : "<<op->src[0]->name<<std::endl;
+                auto _type = ggml::backend::bf16::Tensor_t::GET(op->src[0]);
+                //if (_type) {
+                //    std::cout << "   => " << _type->NAME << std::endl;
+                //}
                 // choisir la 1er OP possible!
                 for (auto imp : ggml::backend::bf16::matmul_ops) {
                     // l'ordre est important...
@@ -825,14 +915,21 @@ namespace ggml::backend::bf16 {
         // [jart] kernel
         BF16_32x1_5x5,
         BF16_32x1_4x6,
-        E4M3_32x1_G_5x5,
-        E4M3_32x1_G_4x6,
-        E4M3_32x1_C_5x5,
-        E4M3_32x1_C_4x6,
-        // mon kernel
-        BF16_2x16,
-        E4M3_2x16_G,
-        E4M3_2x16_C,
+        //  - pour bench / reference  [KB,MB]
+        E4M3_32x1_G_5x5,  // [0,0]
+        E4M3_32x1_G_4x6,  // [0,0]
+        E4M3_32x1_C_5x5,  // [0,1]
+        E4M3_32x1_C_4x6,  // [0,1]
+        //E4M3_32x1_B_5x5,  // [KB,1]
+        //E4M3_32x1_B_4x6,  // [KB,1]
+        // mes kernel  => 2x16x16x{1024,...} ... etc! suivant le CPU
+        BF16_2x16,    // Scale::NONE
+        E4M3_2x16,    // Scale::NONE pour bench seulement..
+        E4M3_2x16_N,  // [0,0] ne marche pas vraiment
+        E4M3_2x16_G,  // [0,0] ne marche pas vraiment
+        E4M3_2x16_C,  // [0,1] mieux
+        E4M3_2x16_K,  // [0,1] mieux
+        E4M3_2x16_B,  // [KB,16] / [K1,1] surement a faire ... voir a gerer plusieur taille de bloc...
         INVALID
     };
     NLOHMANN_JSON_SERIALIZE_ENUM( BACKEND_TYPE, {
@@ -845,8 +942,12 @@ namespace ggml::backend::bf16 {
             {BACKEND_TYPE::E4M3_32x1_C_4x6, "FP8_E4M3C_32x1_4x6"},
 
             {BACKEND_TYPE::BF16_2x16, "BF16_2x16"},
+            {BACKEND_TYPE::E4M3_2x16, "E4M3_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_N, "FP8_E4M3N_2x16"},
             {BACKEND_TYPE::E4M3_2x16_G, "FP8_E4M3G_2x16"},
             {BACKEND_TYPE::E4M3_2x16_C, "FP8_E4M3C_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_K, "FP8_E4M3K_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_B, "FP8_E4M3B_2x16"},
     })
 #define DECODE_TYPE(val) val.template get<BACKEND_TYPE>()
 
@@ -871,51 +972,93 @@ namespace ggml::backend::bf16 {
             switch (b) {
             case BACKEND_TYPE::BF16_32x1_5x5:
                 // les "JART" en dernier de preferance.
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<bf16_t,32>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, 0, Scale::NONE, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, 0, Scale::NONE, 5, 5>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,32>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, Scale::NONE,0,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, Scale::NONE,0,0, 5, 5>);
                 break;
             case BACKEND_TYPE::BF16_32x1_4x6:
                 // les "JART" en dernier de preferance.
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<bf16_t,32>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, 0, Scale::NONE, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, 0, Scale::NONE, 4, 6>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,32>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, Scale::NONE,0,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, Scale::NONE,0,0, 4, 6>);
                 break;
-                /*
             case BACKEND_TYPE::E4M3_32x1_G_5x5:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,32,1,0,Scale::GLOBAL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, 1, Scale::GLOBAL, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, 1, Scale::GLOBAL, 5, 5>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,0,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,0,0, 5, 5>);
                 break;
             case BACKEND_TYPE::E4M3_32x1_G_4x6:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,32,1,0,Scale::GLOBAL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, 1, Scale::GLOBAL, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, 1, Scale::GLOBAL, 4, 6>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,0,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,0,0, 4, 6>);
                 break;
             case BACKEND_TYPE::E4M3_32x1_C_5x5:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,32,1,0,Scale::PER_COL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, 1, Scale::PER_COL, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, 1, Scale::PER_COL, 5, 5>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC,1>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,1,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,1,0, 5, 5>);
                 break;
             case BACKEND_TYPE::E4M3_32x1_C_4x6:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,32,1,0,Scale::PER_COL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, 1, Scale::PER_COL, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, 1, Scale::PER_COL, 4, 6>);
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC,1>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,1,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,1,0, 4, 6>);
                 break;
-            */
+                //case BACKEND_TYPE::E4M3_32x1_B_5x5:
+                //case BACKEND_TYPE::E4M3_32x1_B_4x6:
             case BACKEND_TYPE::BF16_2x16:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<bf16_t,2,16>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_G<bf16_t, Scale::NONE>);
-                //ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<bf16_t, Scale::NONE>);
+                // @ remplacer...
+                //ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,2,16>::type());
+                //ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<bf16_t>);
+                {
+                    using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>; //,Scale::NONE>;
+                    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                    ggml::backend::bf16::matmul_ops.push_back(new matmul);
+                }
                 break;
+            case BACKEND_TYPE::E4M3_2x16:
+                // @ remplacer...
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,2,16>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<f8_E4M3_t>);
+                //{
+                //    using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024>; //,Scale::NONE>;
+                //    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                //    ggml::backend::bf16::matmul_ops.push_back(new matmul);
+                //}
+                break;
+            case BACKEND_TYPE::E4M3_2x16_N:
+            { // n'a de chance que si vrai decodage!
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
             case BACKEND_TYPE::E4M3_2x16_G:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,2,16,0,Scale::GLOBAL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t, Scale::GLOBAL>);
-                break;
+            {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
             case BACKEND_TYPE::E4M3_2x16_C:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<f8_E4M3_t,2,16,1024,Scale::PER_COL>());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,Scale::PER_COL,16,1024,16,2>);
-                break;
+            {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
+            case BACKEND_TYPE::E4M3_2x16_K:
+            {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,1024>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
+            case BACKEND_TYPE::E4M3_2x16_B:
+            {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,16,32>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
             case BACKEND_TYPE::INVALID:
                 std::cout << " > ERREUR: BF16_Backend non connu"<< std::endl;
                 break;
@@ -924,7 +1067,7 @@ namespace ggml::backend::bf16 {
             }
         }
         // ceux tjs "possible"...
-        // ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor_type<fp32_t,32>());
+        // ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tenso::type<fp32_t,32>());
         ggml::backend::bf16::tensors.push_back(&ggml::backend::bf16::tensor_non_supporte_t);
 
         for (auto t : ggml::backend::bf16::tensors) {

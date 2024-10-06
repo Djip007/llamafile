@@ -4,20 +4,13 @@
 // => TODO gerer des bloc de taille [K1,M1,N1] ??? ...
 
 enum class Scale {
-    // TODO: ne garder que NONE et BLOC les autres sont "deductible"
-    // il faut ajouter les KS/MS dans les templates
     NONE,
-    GLOBAL,
-    PER_COL,
-    // PER_BLOC,  // la taille des bloc de K1.
     BLOC,  // fct de KB/MB.
 };
 
 namespace std {
 constexpr std::string to_string(Scale s) {
     if (s==Scale::NONE) return "NONE";
-    if (s==Scale::GLOBAL) return "GLOBAL";
-    if (s==Scale::PER_COL) return "PER_COL";
     if (s==Scale::BLOC) return "BLOC";
     return "UNKNOW";
 }
@@ -45,18 +38,22 @@ std::size_t K0=1, std::size_t M0=0, std::size_t K1=0,
 Scale SCALE=Scale::NONE, std::size_t MB=0, std::size_t KB=0
 >
 class Matrice {
+    // format natif => valeur[m][l] avec l>=k
     static constexpr bool NATIF = (M0==0)&&(K1==0); // && SCALE==Scale::NONE ???
+    Matrice()=delete;
+    Matrice(Matrice&)=delete;
+    Matrice(const Matrice&)=delete;
+    Matrice(Matrice&&)=delete;
 private:
-    enum class PRIVATE { NONE };
     static void control() {
         // qq elements sont a respecter:
         static_assert(K0>0);
         static_assert(K1==0 || K1%K0==0);
-        static_assert((KB==0 && MB==0) || SCALE==Scale::BLOC);
+        static_assert((KB==0 && MB==0) || SCALE==Scale::BLOC); // Scale::NONE => KB=MB=0
         static_assert(M0==0 || MB==0 || MB%M0==0 || MB==1);  // MB==1 => load<M0>, MB%M0==0 => brodcast<M0>
         static_assert(KB==0 || KB%K0==0);
         static_assert(K1==0 || KB==0 || K1%KB==0 || KB%K1==0);
-        static_assert(KB!=0 || MB!=0 || SCALE!=Scale::BLOC);
+        //static_assert(KB!=0 || MB!=0 || SCALE!=Scale::BLOC);
         //static_assert(KB!=0 || MB!=0); // voir a interdire le scale GLOBAL
     }
 public:
@@ -67,13 +64,11 @@ public:
     // la taille necessaire pour le bloc de scale en octet!
     static inline std::size_t scale_size(std::size_t k, std::size_t m) {
         if constexpr(SCALE == Scale::NONE)    return 0;
-        if constexpr(SCALE == Scale::GLOBAL)  return TENSOR_ALIGNMENT;
-        if constexpr(SCALE == Scale::PER_COL) return sizeof(float)*m;
         if constexpr(SCALE == Scale::BLOC) {
-            if constexpr(MB==0 && KB==0) TENSOR_ALIGNMENT; // facteur GLOBAL => voir si on le garde ?
+            if constexpr(MB==0 && KB==0) return TENSOR_ALIGNMENT; // facteur GLOBAL => voir si on le garde ?
             if constexpr(KB==0) return sizeof(float)*(((m-1)/MB)+1);
             if constexpr(MB==0) return sizeof(float)*(((k-1)/KB)+1);
-            if constexpr(MB!=0 && KB!=0) sizeof(float)*(((k-1)/KB)+1)*(((m-1)/MB)+1);
+            if constexpr(MB!=0 && KB!=0) return sizeof(float)*(((k-1)/KB)+1)*(((m-1)/MB)+1);
         }
     }
     static inline std::size_t scale_size(const struct ggml_tensor * t) {
@@ -82,8 +77,14 @@ public:
 
     // inline Matrice(struct ggml_tensor * t):
     static inline std::size_t size(const struct ggml_tensor * t) {
+        // TODO: vrai natif: return ggml_nbytes(t);
         if constexpr (NATIF) {
-            return ggml_nbytes(t);
+            // il sera convertit / paqué ...etc
+            GGML_ASSERT(t->ne[2]==1);
+            GGML_ASSERT(t->ne[3]==1);
+            // pour rester coherant avec le calcul de l ...
+            auto size = sizeof(T)*(t->nb[1]/t->nb[0])*t->ne[1]; //*tensor->ne[2]*tensor->ne[3];
+            return size+scale_size(t);
         } else {
             // il sera convertit / paqué ...etc
             GGML_ASSERT(t->ne[2]==1);
@@ -124,36 +125,28 @@ private:
     T* m_values_fin=nullptr; // le dernier bloc si K1>0 et k%K1 != 0
     float* m_scale=nullptr;
 
-    inline Matrice(PRIVATE, void* v, std::size_t k, std::size_t m, std::size_t l):
-            _k(k), _m(m),
-            _l(next_bloc(l,_k,_m)),
-            _sl(KB>0?(((_k-1)/KB)+1):1), // dans tous les cas contigue suivant _m (load comme vecteur)
-            m_values(data_adr(v,_k,_m)),
-            m_scale(scale_adr(v))
-    {
-        control();
-    }
-public:
-    inline Matrice(T* v, std::size_t k, std::size_t m, std::size_t l): Matrice(PRIVATE::NONE, v, k, m, l)/*,
-            _k(k), _m(m),
-            _l(next_bloc(l,_k,_m)),
-            m_values(data_adr(v,_k,_m)),
-            m_scale(scale_adr(v))
-            */
-    {
-        control();
-        static_assert(SCALE==Scale::NONE);
-        if constexpr (K0>1) GGML_ASSERT(_k%K0==0);
-        if constexpr (M0>1) GGML_ASSERT(_m%M0==0);
-        if constexpr (K1>0) GGML_ASSERT(_k%K1==0); // pour l'instant
+    static std::size_t l_scale(std::size_t k, std::size_t m) {
+        if constexpr (MB==0 || KB==0) return 1;      // 1 valeur ou 1 vecteur... => pas utilisé!
+        if constexpr (MB==1) return (((m-1)/MB)+1);  // les m doivent se suivrent...
+        if constexpr (KB>0)  return (((k-1)/KB)+1);  // les k doivent se suivrent
     }
 
-    // un buffer avec le meme format que le tenseur
-    inline Matrice(const void * data, struct ggml_tensor * t):
-            _k(t->ne[0]), _m(t->ne[1]),
-            _l(next_bloc((t->nb[1]/t->nb[0]),_k,_m)),
-            m_values(data_adr(data,_k,_m)),
-            m_scale(scale_adr(data))
+    inline Matrice(T* v, std::size_t k, std::size_t m, std::size_t l):
+            _k(k), _m(m),
+            _l(next_bloc(l,k,m)),
+            _sl(l_scale(k,m)), // KB>0 => vrai bloc. scale[m/MB][k/KB]
+            m_values(data_adr(v,k,m)),
+            m_scale(scale_adr(v))
+    {
+        control();
+        // KB>0 => MB >0
+        static_assert(KB==0 || MB>0);
+    }
+public:
+
+    // pour les set_tensor (un buffer avec le meme format que le tenseur)
+    inline Matrice(const void * data, struct ggml_tensor * t): Matrice((T*)data,t->ne[0],t->ne[1],t->nb[1]/t->nb[0])
+            //_k(t->ne[0]),_m(t->ne[1]),_l(next_bloc((t->nb[1]/t->nb[0]),_k,_m)),m_values(data_adr(data,_k,_m)),m_scale(scale_adr(data))
     {
         control();
         static_assert(NATIF);
@@ -162,83 +155,82 @@ public:
         if constexpr (K0>1) GGML_ASSERT(_k%K0==0);
     }
 
-    inline Matrice(struct ggml_tensor * t):
-            _k(t->ne[0]), _m(t->ne[1]),
-            _l(next_bloc((t->nb[1]/t->nb[0]),_k,_m)),
-            m_values(data_adr(t->data,_k,_m)),
-            m_scale(scale_adr(t->data))
+    // les autres gemm..
+    inline Matrice(struct ggml_tensor * t): Matrice((T*)t->data,t->ne[0],t->ne[1],t->nb[1]/t->nb[0])
+            //_k(t->ne[0]),_m(t->ne[1]),_l(next_bloc((t->nb[1]/t->nb[0]),_k,_m)),m_values(data_adr(t->data,_k,_m)),m_scale(scale_adr(t->data))
     {
         control();
         GGML_ASSERT(t->ne[2]==1);
         GGML_ASSERT(t->ne[3]==1);
+        // std::cout<< "Matrice<"<<t->name<<">("<<_k<<","<<_m<<")"<<std::endl;
     }
 
+    // sgemm seulement pour l'instant!
     inline Matrice(struct ggml_tensor * t, std::size_t i, std::size_t j):
             _k(t->ne[0]), _m(t->ne[1]),
             _l(t->nb[1]/t->nb[0]),
-            m_values(data_adr(t->data, t->ne[1], t->ne[1], i*t->nb[2]+j*t->nb[3])),
-            m_scale(scale_adr(t->data))
+            m_values(data_adr(t->data, _k, _m, i*t->nb[2]+j*t->nb[3])),
+            m_scale(scale_adr(t->data)) // nullptr !!
     {
         control();
         // pas (encore) utilisable pour les empilements de matrice non native!
         static_assert(NATIF);
-        //if constexpr(!NATIF) {
-        //    GGML_ASSERT(i==0);
-        //    GGML_ASSERT(j==0);
-        //}
+        if constexpr(SCALE!=Scale::NONE) { // ?? p'etre possible en GLOBAL...
+            GGML_ASSERT(i==0);
+            GGML_ASSERT(j==0);
+        }
     }
 
-    inline void set_scale(float val, std::size_t j=0, std::size_t k=0) {
-        if constexpr(SCALE!=Scale::NONE) m_scale[indice_scale(k,j)] = val;
+private:
+    inline std::size_t indice_scale(std::size_t k, std::size_t i) const {
+        static_assert(SCALE==Scale::BLOC);
+        if constexpr(SCALE==Scale::BLOC) {
+            if constexpr(MB==0 && KB==0) return 0;       // facteur GLOBAL => voir si on le garde ?
+            if constexpr(KB==0)          return i/MB;    // toutes les MB collones
+            if constexpr(MB==0)          return k/KB;    // toutes les KB lignes
+            if constexpr(MB==1 && KB!=0) return _sl*(k/KB) + i;      // ici les m doivent se suivre ... _sl = ((k-1)/KB)+1 ???
+            if constexpr(MB>1 && KB!=0)  return (k/KB) + _sl*(i/MB); // _sl = ((k-1)/KB)+1 ???
+        }
     }
 
-    inline auto get_scale(std::size_t j=0, std::size_t k=0) const {
+public:
+    inline void set_scale(float val, std::size_t k, std::size_t i) {
+        if constexpr(SCALE==Scale::BLOC) m_scale[indice_scale(k,i)] = val;
+    }
+
+    /*
+    inline auto get_scale(std::size_t j, std::size_t k) const {
         if constexpr(SCALE==Scale::NONE) {
             return (float)1;
         } else {
             return m_scale[indice_scale(k,j)];
         }
-        //if constexpr(SCALE==Scale::NONE) return (float)1;
-        //if constexpr(SCALE==Scale::GLOBAL) return *m_scale;
-        //if constexpr(SCALE==Scale::PER_COL) return m_scale+j;
-        //if constexpr(SCALE==Scale::PER_BLOC) return m_scale+j+_m*(k/K1);
     }
-    template<int N>
-    inline auto get_scale_v(std::size_t j, std::size_t k=0) const {
-        if constexpr(SCALE==Scale::NONE)     return _mm512_set1_ps ((float)1);
-        if constexpr(SCALE==Scale::GLOBAL)   return _mm512_set1_ps (*m_scale);
-        if constexpr(SCALE==Scale::PER_COL)  return load<typename type_t<fp32_t, N>::t>(m_scale+j); // float[j,...]
-        //if constexpr(SCALE==Scale::PER_BLOC) return load<typename type_t<fp32_t, N>::t>(m_scale+j+_m*(k/K1)); // float[j,...]
-        if constexpr(SCALE==Scale::BLOC) {
-            if constexpr(MB==0 && KB==0)  {
-                return _mm512_set1_ps (*m_scale); // GLOBAL => brodcast
-            }
-            else if constexpr(MB==1 && KB==0)  {
-                return load<typename type_t<fp32_t, N>::t>(m_scale+j); // PAR COLLONE => les N qui se suivent
-            }
-            else if constexpr(MB==1 && KB==K1) {
-                return load<typename type_t<fp32_t, N>::t>(m_scale+j); // PAR BLOK(K1) de COLLONE => les N qui se suivent
-            }
-            else if constexpr(MB%M0==0 && KB>0) {
-                // les cas BLOC[m/MB][k/KN] => 1 valeur a broadcaster
-                _mm512_set1_ps (m_scale[indice_scale(k,j)]);
-            } else {
-                static_assert(false, "cas pas encore supporté");
-            }
-
+    */
+    // pour sgemm ... en attandant de faire ca avec addr_scale
+    inline auto get_scale(std::size_t I0) const {
+        if constexpr(SCALE==Scale::NONE) {
+            return (float)1;
+        } else if constexpr(SCALE==Scale::BLOC && KB==0 && MB==0) {
+            return *m_scale;
+        } else if constexpr(SCALE==Scale::BLOC && KB==0 && MB==1) {
+            return m_scale+indice_scale(0,I0);
+        } else {
+            static_assert(false, "Si besion il faut reformater avec addr_scale!");
         }
     }
 
-    inline std::size_t indice_scale(std::size_t k, std::size_t i) const {
-        static_assert(SCALE!=Scale::NONE);
-        if constexpr(SCALE==Scale::GLOBAL)   return 0;
-        if constexpr(SCALE==Scale::PER_COL)  return i;  // == KB=0, MB=1
+    inline auto addr_scale(std::size_t k0, std::size_t i0) {
+        static_assert(SCALE==Scale::BLOC);
         if constexpr(SCALE==Scale::BLOC) {
-            //return load<typename type_t<fp32_t, N>::t>(m_scale+j+_m*(k/K1)); // float[j,...]
-            if constexpr(MB==0 && KB==0) 0; // facteur GLOBAL => voir si on le garde ?
-            if constexpr(KB==0) return i%MB;   // toute les MB collone
-            if constexpr(MB==0) return k%KB;
-            if constexpr(MB!=0 && KB!=0) (k%KB) + _sl*(i%MB); // _sl = ((k-1)/KB)+1 ???
+            return m_scale+indice_scale(k0,i0);
+        }
+    }
+
+    inline const float* addr_scale(std::size_t k0, std::size_t i0) const {
+        static_assert(SCALE==Scale::BLOC);
+        if constexpr(SCALE==Scale::BLOC) {
+            return m_scale+indice_scale(k0,i0);
         }
     }
 
@@ -267,6 +259,7 @@ public:
                 const auto i0 = i%M0;
                 indice += k1*M0*K0+i0*K0+k0;
             } else {
+                //std::cout << "k/i = "<< k << "/"<<i<<":"<<K1<<"/"<<M0<<std::endl;
                 GGML_ASSERT(k%K1==0);
                 GGML_ASSERT(i%M0==0);
                 GGML_ASSERT((k/K0)%(K1/K0)==0);
@@ -290,12 +283,14 @@ public:
         return m_values + indice<true>(k,i);
     }
     inline const T* addr(std::size_t k, std::size_t i) const {
+        //std::cout << " addr("<<k<<","<<i<<") : "<<_k<<"/"<<_m<<std::endl;
         GGML_ASSERT(k<_k);
         GGML_ASSERT(i<_m);
         return m_values + indice<true>(k,i);
     }
 
     inline float max() const {
+        static_assert(SCALE==Scale::NONE); // sinon c'est "debile"
         float res = 0;
         float val;
 #pragma omp parallel for schedule(guided)
@@ -308,28 +303,53 @@ public:
         }
         return res;
     }
-    inline float max(std::size_t i) const {
-        float res = 0;
-        float val;
-        for (std::size_t k=0; k<_k; k++) {
-            conv(val, (*this)(k,i));
-            val = val>0?val:-val;
-            if (val>res) res = val;
+    template<int K, int M>
+    inline float max(std::size_t k0, std::size_t i0) const {
+        static_assert(SCALE==Scale::NONE); // sinon c'est "debile"
+        static_assert(K!=0 || M!=0); // max global
+        if constexpr(K==0) { // sur tout la colonne
+            GGML_ASSERT(k0==0);
+            GGML_ASSERT(i0%M==0); // aligné sur la grille
+            float res = 0;
+            float val;
+            const auto m_end = std::min(_m, M+i0);
+            for (std::size_t i=i0; i<m_end; i++)
+            for (std::size_t k=0; k<_k; k++) {
+                conv(val, (*this)(k,i0));
+                val = val>0?val:-val;
+                if (val>res) res = val;
+            }
+            return res;
         }
-        return res;
-    }
-    template<std::size_t SIZE>
-    inline float max(std::size_t k0, std::size_t i) const {
-        float res = 0;
-        float val;
-        const auto end = std::min(_k, SIZE+k0);
-        GGML_ASSERT(end == k0+SIZE);
-        for (std::size_t k=k0; k<end; k++) {
-            conv(val, (*this)(k,i));
-            val = val>0?val:-val;
-            if (val>res) res = val;
+        if constexpr(M==0) { // sur tout la ligne (des fois que... mais peu de chance)
+            GGML_ASSERT(i0==0);
+            GGML_ASSERT(k0%K==0); // aligné sur la grille
+            float res = 0;
+            float val;
+            const auto k_end = std::min(_k, K+k0);
+            for (std::size_t k=k0; k<k_end; k++)
+            for (std::size_t i=0; i<_m; i++) {
+                conv(val, (*this)(k0,i));
+                val = val>0?val:-val;
+                if (val>res) res = val;
+            }
+            return res;
         }
-        return res;
+        if constexpr(K>0 && M>0) { // de "vrai" blocs
+            GGML_ASSERT(k0%K==0); // aligné sur la grille
+            GGML_ASSERT(i0%M==0); // aligné sur la grille
+            float res = 0;
+            float val;
+            const auto k_end = std::min(_k, K+k0);
+            const auto m_end = std::min(_m, M+i0);
+            for (std::size_t i=i0; i<m_end; i++)
+            for (std::size_t k=k0; k<k_end; k++) {
+                conv(val, (*this)(k,i));
+                val = val>0?val:-val;
+                if (val>res) res = val;
+            }
+            return res;
+        }
     }
 
 };

@@ -3,36 +3,37 @@
 //  - C is compute with bloc: C[N0][16]
 
 namespace ggml::bf16::op_matmul {
-    template<typename TYPE_A, Scale SCALE>
-    class bf16_2x16_G: public ggml::backend::bf16::op {
-        // static constexpr auto SCALE = ggml::backend::bf16::type_of<TYPE_A>::SCALE;
-        // OK c'est prometeur on sature la memoire avec 2 threads!
-        // Pour aller plus vite il va faloir gerer les caches!
-        //  - A => en L2
-        //  - B => en L1
-        // => il fait gerer des K1
-        // => parcourir M2 bloc
-        // => parcourir tous les B
-        // => passer a la suite...
-        //   - K0 : dot2       => 2
-        //   - M0 : simd       => 16
-        //   - N0 : registres  => 16?
-        //   - K1 : B en L1 (+conv bf16)  => 32k: 1024/2=512
-        //   - M1 : A en L2               => 1Mo: 32 (bf16) / 64 (fp8) (512xNbThread)
-        //   - N1 : B en L3 (fp32) / C en L3 (?)  => 16 Mo  => 256 (4096 fp32)???
-        //   - K  : tous les K
-        //   - M  : tous les M  \ dispache par coeurs
-        //   - N  : tous les N  /
-        // Note: reduction sur K ...
-        //  https://passlab.github.io/Examples/contents/Chap_data_environment/9_Reduction.html#user-defined-reduction
+
+    //CORRECTION
+    template<typename T1, typename T2> T2 correct(T2 val);
+
+    // __m512
+    template<> __m512 correct<fp32_t,   __m512>(__m512 val) { return val; }
+    template<> __m512 correct<bf16_t,   __m512>(__m512 val) { return val; }
+    template<> __m512 correct<fp16_t,   __m512>(__m512 val) { return val; }
+    template<> __m512 correct<f8_E4M3_t,__m512>(__m512 val) { return val*CORRECTION<f8_E4M3_t>(); }
+
+    template<typename TYPE_A>
+    class bf16_2x16_NONE: public ggml::backend::bf16::op {
+    public:
+        static constexpr size_t K0 =  2;
+        static constexpr size_t M0 = 16;
+        static constexpr size_t K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
+        using tensorA_t = ggml::backend::bf16::tensor<TYPE_A,K0,M0>;
+        using tensorB_t = ggml::backend::bf16::tensor<fp32_t,8>;
+        using tensorC_t = ggml::backend::bf16::tensor<fp32_t,16>;
+        using matA_t = tensorA_t::matrice_t;
+        using matB_t = tensorB_t::matrice_t;
+        using matC_t = tensorC_t::matrice_t;
+
         void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
             mesure time; time.start();
 #endif
             // normalement ici les type sont deja controlé
-            const Matrice<TYPE_A,2,16,0,SCALE> A(op->src[0]);
-            const Matrice<fp32_t,8>          B(op->src[1]);
-            Matrice<fp32_t,16>               C(op);
+            const matA_t A(op->src[0]);
+            const matB_t B(op->src[1]);
+            matC_t       C(op);
             mul_mat(A, B, C);
 #ifdef DO_TIMING
             auto dt = time.end();
@@ -45,46 +46,36 @@ namespace ggml::bf16::op_matmul {
 
         // pour l'instant tjs des type FP32 natif ... pas le choix et y en a pas d'autre!
         bool C_is_allowed(const struct ggml_tensor *C) override {
-            return ggml::backend::bf16::tensor_type<fp32_t,16>()->is_allowed(C) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+            return tensorC_t::type()->is_allowed(C) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
         }
         bool B_is_allowed(const struct ggml_tensor *B) override {
-            return ggml::backend::bf16::tensor_type<fp32_t,8>()->is_allowed(B) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
+            return tensorB_t::type()->is_allowed(B) == ggml::backend::bf16::Tensor_t::COMPAT::NATIVE;
         }
         bool A_is_allowed(const struct ggml_tensor *A) override {
             auto a = ggml::backend::bf16::Tensor_t::GET(A);
             if(!a && A->view_src) {
                 // une vue => pas "encore" supporté!
-                //  il y a les kv cache... => mais pas re-formatable de toute facon!!!
-                //llama.cpp/ggml-bf16.cpp@670: type de A non defini: VIEW/v-39[64:128:8:1/2:256:32768:262144]@bf16
-                //  => VIEW: NONE/cache_v_l39[131072:1:1:1/2:262144:262144:262144]@bf16/0x31c50c0
-                //llama.cpp/ggml-bf16.cpp@670: type de A non defini: VIEW/k-39[128:64:8:1/2:2048:256:2048]@bf16
-                //  => VIEW: NONE/cache_k_l39[131072:1:1:1/2:262144:262144:262144]@bf16/0x31c50c0
                 return false;
             }
             GGML_ASSERT(a!=nullptr);
             // on sais deja:
-            if (a == ggml::backend::bf16::tensor_type<TYPE_A,2,16,0,SCALE>()) return true;
+            if (a == tensorA_t::type()) return true;
             return false;
         }
 
+    private:
         // le bloc de bas niveau
-        //   pas le plus performant possible mais de quoi faire qq tests
-        //  => K0/M0 sont alors fixé pour A!
         template<size_t N0, typename TA, typename TB, typename TC>
-        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t ldb, std::size_t ldc, std::size_t K2, float scale) {
+        static void gemm(const TA *pA, const TB *pB, TC *pC, std::size_t ldb, std::size_t ldc, std::size_t K2) { //, float scale) {
             // lda: comment passer de A[k,i] => A[k,i+M1]
             // ldb: comment passer de B[k,j] => B[k,j+1]
             // ldc: comment passer de C[i,j] => C[i,j+1]
-            constexpr int K0 =  2; //
-            constexpr int M0 = 16; // 16 FP32 => 1 AVX512!
-            constexpr int K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
+            //constexpr int K0 =  2; //
+            //constexpr int M0 = 16; // 16 FP32 => 1 AVX512!
+            //constexpr int K1 =  8; // des blocks de 4 (8/2) pour ameloré les lecture de B!
             static_assert(N0>0);
             GGML_ASSERT(K2%K1 == 0);
 
-            // K%32 == 0!!
-            // A[?,K+:lda]
-            // B[?,K+:ldb]
-            // C[?,ldc]
             __m512   C[N0];    // m512   == fp32[M0]
             __m512bh A[K1/K0]; // m512bh == bf16[M0][K0]
 
@@ -115,38 +106,36 @@ namespace ggml::bf16::op_matmul {
             // ecriture de C...
 #pragma GCC unroll N0
             for(size_t j=0; j<N0; j++) {
-                store(pC+j*ldc, C[j]* (SCALE!=Scale::NONE?scale:1));
+                store(pC+j*ldc, correct<TA>(C[j]));
+                //store(pC+j*ldc, C[j]);
             }
         }
 
         template<size_t N0, size_t M0, size_t K0>
-        inline void sgemm_bloc(const Matrice<TYPE_A,K0,M0,0,SCALE>& A, const Matrice<fp32_t,8>& B, Matrice<fp32_t,16>& C, size_t i, size_t j, size_t N, size_t K) const {
+        inline void sgemm_bloc(const matA_t& A, const matB_t& B, matC_t& C, size_t i, size_t j, size_t N, size_t K) const {
             static_assert(N0<=16);
             switch (N) {
-                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
-                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K, A.get_scale()); break;
+                case 16: gemm<16>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 15: gemm<15>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 14: gemm<14>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 13: gemm<13>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 12: gemm<12>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 11: gemm<11>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case 10: gemm<10>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  9: gemm< 9>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  8: gemm< 8>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  7: gemm< 7>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  6: gemm< 6>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  5: gemm< 5>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  4: gemm< 4>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  3: gemm< 3>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  2: gemm< 2>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
+                case  1: gemm< 1>(A.addr(0,i),B.addr(0,j),C.addr(i,j),B.LD(),C.LD(), K); break;
                 default: break;
             }
         }
 
-        template<size_t K0, size_t M0>
-        void mul_mat(const Matrice<TYPE_A,K0,M0,0,SCALE>& A, const Matrice<fp32_t,8>& B, Matrice<fp32_t,16>& C) const {
-            static_assert(K0==2);
-            static_assert(M0==16);
+        void mul_mat(const matA_t& A, const matB_t& B, matC_t& C) const {
             const auto m = C.DIM1(); // == A.DIM2()
             const auto n = C.DIM2(); // == B.DIM2()
             const auto k = A.DIM1(); // == B.DIM1()
