@@ -46,12 +46,7 @@ OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]'  $RUN
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
 
-#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16",                   "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
 #OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["E4M3_2x16",      "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
-
 
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
@@ -79,6 +74,8 @@ GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",  "BF16_32x1_5x5"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["BF16_2x16"]' OMP_NUM_THREADS=8 \
 ./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
 
 # ./usr/bin/llamafile-perplexity -m Mistral-Nemo-Instruct-2407.BF16.gguf -f wikitext-2-raw/wiki.valid.raw -s 31337
@@ -464,10 +461,12 @@ namespace ggml::backend::bf16 {
 // - cas block de BF16:
 //  > gere que les scales global => @ suprimer
 #include "ggml-bf16-bloc.inc"
+#include "ggml-bf16-bloc_T.inc"
 // #include "ggml-bf16-bloc2.inc"
 // #include "ggml-bf16-bloc3.inc"
 // #include "ggml-bf16-bloc4.inc"
-#include "ggml-bf16-bloc5.inc"
+// #include "ggml-bf16-bloc5.inc"
+#include "ggml-bf16-bloc6.inc"
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
@@ -1013,6 +1012,7 @@ namespace ggml::backend::bf16 {
                 //ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,2,16>::type());
                 //ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<bf16_t>);
                 {
+                    //using matmul = ggml::bf16::op_matmul::bf16_2x16_T<bf16_t,16,16,2,1024>; //,Scale::NONE>;
                     using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>; //,Scale::NONE>;
                     ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                     ggml::backend::bf16::matmul_ops.push_back(new matmul);

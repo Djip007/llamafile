@@ -255,14 +255,15 @@ public:
             auto indice = k2*_l+i1*K1*M0;
             if constexpr(!BLOC) {
                 const auto k0 = k%K0;
-                const auto k1 = (k/K0)%(K1/K0);  // (k/K0)%((_k%K1)/K0) pour le dernier bloc si pas complet?
+                //const auto k1 = (k/K0)%(K1/K0);  // (k/K0)%((_k%K1)/K0) pour le dernier bloc si pas complet?
+                const auto k1 = (k%K1)/K0;  // (k/K0)%((_k%K1)/K0) pour le dernier bloc si pas complet?
                 const auto i0 = i%M0;
                 indice += k1*M0*K0+i0*K0+k0;
             } else {
                 //std::cout << "k/i = "<< k << "/"<<i<<":"<<K1<<"/"<<M0<<std::endl;
                 GGML_ASSERT(k%K1==0);
                 GGML_ASSERT(i%M0==0);
-                GGML_ASSERT((k/K0)%(K1/K0)==0);
+                //GGML_ASSERT((k/K0)%(K1/K0)==0);
             }
             //  A[K/K0*K1][M/M0][K1/K0][M0][K0]
             //      k2      i1    k1    i0  k0
