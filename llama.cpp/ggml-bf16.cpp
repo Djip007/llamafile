@@ -5,28 +5,18 @@ make clean
 make -j16
 make -j16 install PREFIX=/home/philou/LLM/usr/
 
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q8_0.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q6_K.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_M.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_S.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_M.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_S.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_L.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_M.llamafile
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_S.llamafile
-
-// trace des tenseurs
-GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:128:1:1/4:20480:2621440:2621440]@f32 => [131072:128:1:1/4:524288:67108864:67108864]@f32)
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
-
-> run: une fois implementé
+> run:
 export RUN="./usr/bin/llamafile -m Mistral-7B-Instruct-v0.3.BF16.gguf   -c 128 -n 16 -t 0 -s 42 -p "
 export RUN="./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -s 42 -p "
 export RUN_ARGS="[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+
+> benchmarks:
+export RUN="./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -r 3 -p "
+export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512"
+
+> mesure de perplexité:
+export RUN="./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m"
+export RUN_ARGS=Mistral-Nemo-Instruct-2407.BF16.gguf
 
 > les [jart]
 $RUN "${RUN_ARGS}"
@@ -39,46 +29,67 @@ OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_5x5", "BF16_32x1_5x5"
 OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
 
 > les miens
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16"                  ]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3N_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16"                   ]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3N_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"  => KO mais "normal"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K0_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K1_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K2_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K3_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
 
 #OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["E4M3_2x16",      "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'                $RUN "${RUN_ARGS}"
+
 
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 # celui de reference (llamafile)
-
-> benchmarks:
-export RUN="./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -r 3 -p "
-export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512"
-
-
-GGML_USE_BACKEND_BF16='["FP8_E4M3_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8  \
-./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
-
-./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 
 
 #> mesure de perplexité:
 // [jart]: 11.7748 vs. 5.6997 ?  (wiki.test.raw?)
 wget https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip
 unzip wikitext-2-raw-v1.zip
-=> wikitext-2-raw/wiki.valid.raw
+=> wikitext-2-raw/wiki.test.raw
 
-GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1", "BF16_32x1"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",  "BF16_32x1_5x5"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["BF16_2x16"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
 GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["BF16_2x16"]' OMP_NUM_THREADS=8 \
 ./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
 
-# ./usr/bin/llamafile-perplexity -m Mistral-Nemo-Instruct-2407.BF16.gguf -f wikitext-2-raw/wiki.valid.raw -s 31337
+
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]' \
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' \
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'               \
+./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.valid.raw -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q8_0.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q6_K.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_M.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q5_K_S.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_M.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q4_K_S.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_L.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_M.llamafile
+#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_S.llamafile
+
+// trace des tenseurs
+GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
+
+TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:128:1:1/4:20480:2621440:2621440]@f32 => [131072:128:1:1/4:524288:67108864:67108864]@f32)
+TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
+TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
 
  */
 
@@ -513,7 +524,7 @@ namespace ggml::backend::bf16::buffer {
             "ttn_output.weight",
             "output.weight",
         };}
-// transforme: tensor<bf16_t,32,0,0,NONE>+output.weight[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16
+        // transforme: tensor<bf16_t,32,0,0,NONE>+output.weight[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16
         // pas convertible mais OK pour reformater ???
         /*
 //  pour les couches:
@@ -931,7 +942,10 @@ namespace ggml::backend::bf16 {
         E4M3_2x16_N,  // [0,0] ne marche pas vraiment
         E4M3_2x16_G,  // [0,0] ne marche pas vraiment
         E4M3_2x16_C,  // [0,1] mieux
-        E4M3_2x16_K,  // [0,1] mieux
+        E4M3_2x16_K0, // [1024,1] mieux
+        E4M3_2x16_K1, // [ 512,1]
+        E4M3_2x16_K2, // [ 256,1]
+        E4M3_2x16_K3, // [ 128,1]
         E4M3_2x16_B,  // [KB,16] / [K1,1] surement a faire ... voir a gerer plusieur taille de bloc...
         INVALID
     };
@@ -949,7 +963,11 @@ namespace ggml::backend::bf16 {
             {BACKEND_TYPE::E4M3_2x16_N, "FP8_E4M3N_2x16"},
             {BACKEND_TYPE::E4M3_2x16_G, "FP8_E4M3G_2x16"},
             {BACKEND_TYPE::E4M3_2x16_C, "FP8_E4M3C_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_K, "FP8_E4M3K_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_K0, "FP8_E4M3K0_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_K1, "FP8_E4M3K1_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_K2, "FP8_E4M3K2_2x16"},
+            {BACKEND_TYPE::E4M3_2x16_K3, "FP8_E4M3K3_2x16"},
+
             {BACKEND_TYPE::E4M3_2x16_B, "FP8_E4M3B_2x16"},
     })
 #define DECODE_TYPE(val) val.template get<BACKEND_TYPE>()
@@ -1011,13 +1029,13 @@ namespace ggml::backend::bf16 {
                 // @ remplacer...
                 //ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,2,16>::type());
                 //ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<bf16_t>);
-                {
-                    //using matmul = ggml::bf16::op_matmul::bf16_2x16_T<bf16_t,16,16,2,1024>; //,Scale::NONE>;
-                    using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>; //,Scale::NONE>;
-                    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
-                    ggml::backend::bf16::matmul_ops.push_back(new matmul);
-                }
-                break;
+            {
+                //using matmul = ggml::bf16::op_matmul::bf16_2x16_T<bf16_t,16,16,2,1024>; //,Scale::NONE>;
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>; //,Scale::NONE>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            }
+            break;
             case BACKEND_TYPE::E4M3_2x16:
                 // @ remplacer...
                 ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,2,16>::type());
@@ -1028,41 +1046,46 @@ namespace ggml::backend::bf16 {
                 //    ggml::backend::bf16::matmul_ops.push_back(new matmul);
                 //}
                 break;
-            case BACKEND_TYPE::E4M3_2x16_N:
-            { // n'a de chance que si vrai decodage!
+            case BACKEND_TYPE::E4M3_2x16_N: { // n'a de chance que si vrai decodage!
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
-            case BACKEND_TYPE::E4M3_2x16_G:
-            {
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_G: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
-            case BACKEND_TYPE::E4M3_2x16_C:
-            {
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_C: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
-            case BACKEND_TYPE::E4M3_2x16_K:
-            {
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_K0: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,1024>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
-            case BACKEND_TYPE::E4M3_2x16_B:
-            {
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_K1: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,512>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_K2: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,256>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_K3: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,128>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E4M3_2x16_B: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,16,32>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
+            } break;
             case BACKEND_TYPE::INVALID:
                 std::cout << " > ERREUR: BF16_Backend non connu"<< std::endl;
                 break;

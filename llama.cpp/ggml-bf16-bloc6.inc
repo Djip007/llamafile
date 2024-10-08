@@ -27,13 +27,9 @@ namespace ggml::bf16::op_matmul {
         using type_A = TYPE_A;
         using type_B = fp32_t;
         using type_C = fp32_t;
-        //using matA_t = Matrice<type_A,K0,M0,K1,SCALE,MB,KB>;
-        //using matB_t = Matrice<type_B,K1>;
-        //using matC_t = Matrice<type_C,M0>;
         using tensorA_t = ggml::backend::bf16::tensor<type_A,K0,M0,K1,SCALE,MB,KB>;
         using tensorB_t = ggml::backend::bf16::tensor<type_B,K1>;
         using tensorC_t = ggml::backend::bf16::tensor<type_C,M0>;
-
         using matA_t = tensorA_t::matrice_t;
         using matB_t = tensorB_t::matrice_t;
         using matC_t = tensorC_t::matrice_t;
@@ -51,18 +47,16 @@ namespace ggml::bf16::op_matmul {
             static_assert(K0==2);  // pour l'instant pas d'autre cas pour calcul en bf16 / 1 si calcul en fp32 ...
             static_assert(M0==16); // 16xFP32 => 1 AVX512 / 8xFP32 => 1 AVX256 ...
         }
+
         void exec(struct ggml_tensor *op) const override {
 #ifdef DO_TIMING
             mesure time; time.start();
 #endif
-            // normalement ici les type sont deja controlé
+            // normalement ici les types sont deja controlé
             const matA_t A(op->src[0]);
             const matB_t B(op->src[1]);
             matC_t C(op);
-
-            //std::cout << "#> bf16_2x16::exec<"<<K0<<","<<M0<<","<<N0<<","<<K1<<">:"<<op->name<<"("<<op->src[0]->name<<","<<op->src[1]->name<<")"<< std::endl;
             mul_mat(A, B, C);
-
 #ifdef DO_TIMING
             auto dt = time.end();
             std::cout << " bf16_2x16> " <<op->op<<"("<<log_srcs(op)<<" => "<<op<<"): "<< op->name << " => "
@@ -96,7 +90,6 @@ namespace ggml::bf16::op_matmul {
         }
 
     private:
-
         // les 2 doivent etre "synchro"
         static inline auto get_scale(const matA_t& A, std::size_t k0, std::size_t i0 ) {
             if constexpr(SCALE==Scale::NONE) return (float)1; // de toute facon il est pas utilisé!
@@ -115,9 +108,15 @@ namespace ggml::bf16::op_matmul {
                 } else if constexpr(KB>=K0 && MB>=M0 && KB%K0==0 && MB%M0==0) {
                     // BLOC   : MB>M1 && KB>0
                     return _mm512_set1_ps(scale[k/KB]);
-                } else if constexpr( MB==1 && (KB==0 || (KB>=K1 && KB%K1==0)) ) {
-                    // COLONNE globale ou COLONNE d'un bloc => on charge les M0 donnée
+                } else if constexpr( MB==1 && KB==0 ) {
+                    // COLONNE globale => on charge les M0 donnée
                     return load<typename type_t<type_C,M0>::t>(scale);
+                } else if constexpr( MB==1 && KB>=K1 && KB%K1==0 ) {
+                    // COLONNE d'un bloc > bloc de calcul => on charge les M0 donnée
+                    return load<typename type_t<type_C,M0>::t>(scale);
+                } else if constexpr( MB==1 && KB>=K0 && KB<K1 && K1%KB==0 ) {
+                    // COLONNE d'un bloc < bloc de calcul => on charge les M0 donnée
+                    return load<typename type_t<type_C,M0>::t>(scale+(k/KB)*M0);
                 } else {
                     static_assert(false,"Pas encore supporté... est-ce possible");
                 }
