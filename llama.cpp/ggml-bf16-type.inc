@@ -16,23 +16,26 @@
 typedef struct { uint8_t bits; } ggml_E5M2_t;
 typedef struct { uint8_t bits; } ggml_E4M3_t;
 typedef struct { uint8_t bits; } ggml_E3M4_t;
+typedef struct { uint8_t bits; } ggml_E2M5_t;
 
 using fp32_t = float;
 using bf16_t = ggml_bf16_t;
 using fp16_t = ggml_fp16_t;
 //using fp8_t  = ggml_fp8_t;    // == f8_E3M4_t ??
-using f8_E3M4_t = ggml_E3M4_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E3M4
-using f8_E4M3_t = ggml_E4M3_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E4M3
 using f8_E5M2_t = ggml_E5M2_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E5M2
+using f8_E4M3_t = ggml_E4M3_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E4M3
+using f8_E3M4_t = ggml_E3M4_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E3M4
+using f8_E2M5_t = ggml_E2M5_t;  // GGML_TYPE_FP8 => GGML_TYPE_FP8_E2M5
 
 namespace std {
 template<typename T> constexpr std::string to_string() {return "UNKNOW";}
 template<> constexpr std::string to_string<fp32_t>() {return "fp32_t";}
 template<> constexpr std::string to_string<bf16_t>() {return "bf16_t";}
 template<> constexpr std::string to_string<fp16_t>() {return "fp16_t";}
-template<> constexpr std::string to_string<f8_E3M4_t>() {return "f8_E3M4_t";}
-template<> constexpr std::string to_string<f8_E4M3_t>() {return "f8_E4M3_t";}
 template<> constexpr std::string to_string<f8_E5M2_t>() {return "f8_E5M2_t";}
+template<> constexpr std::string to_string<f8_E4M3_t>() {return "f8_E4M3_t";}
+template<> constexpr std::string to_string<f8_E3M4_t>() {return "f8_E3M4_t";}
+template<> constexpr std::string to_string<f8_E2M5_t>() {return "f8_E2M5_t";}
 }
 
 // qq vecteur de
@@ -59,25 +62,41 @@ template<int N> constexpr float EXP2() {
     if constexpr (N<0) return EXP2<N+1>()/2;
 }
 
-template<int E> //, int M=7-E>  1.7 bits!
+// 2^N avec N>0 en entier
+template<int N> constexpr int EXP_I2() {
+    if constexpr (N==0) return 1;
+    if constexpr (N>0) return EXP_I2<N-1>()*2;
+}
+
+template<int _E> //, int M=7-E>  1.7 bits!
 struct FP8 {
     uint8_t bits;
-    using type = FP8<E>;
-    static constexpr int M=7-E;
-    static constexpr int E_BIAS=EXP2<E>()-1;
-    // MAX = 1+1/2+1/4...1/(2^(M+1))
+    using type = FP8<_E>;
+    static constexpr int E=_E;
+    static constexpr int M=7-_E;
+    //=============================================
+    // FP8 avec que des exposant negatif
+    //static constexpr int E_BIAS=EXP2<_E>()-1;
+    // FP8 avec que des exposant positif
+    //static constexpr int E_BIAS=1;
+    //=============================================
+    static constexpr int E_BIAS=EXP2<_E-1>()-1;
     static constexpr float MAX() {
-        if constexpr (M==0) {
-            return 1;
-        }
-        return FP8<E+1>::MAX()+EXP2<M+1>();
+        // 1.1..1*2^2^(E-1) : sans NAN!
+        //return (2-EXP2<-M>())*EXP2<_E-1>();
+        // 1.1..10*2^2^(E-1) avec NAN)    E3M4:  1.1110 * 2^(4)
+        return (2-EXP2<-M+1>())*EXP2<EXP_I2<_E-1>()>();
     }
-    // MIN = (1/2)^(M)
     static constexpr float MIN() {
-        return EXP2<-M>();
+        // 0.0..01 * 2^(2-2^(E-1))        E3M4: 0.0001 * 2^(-2)
+        return EXP2<-M>()*EXP2<2-EXP_I2<_E-1>()>();
     }
+    //=============================================
 
     void operator=(fp32_t value) {
+        // S.EEEEEEEE.MMMMMMMMMMMMMMMMMMMMMMM
+        // 3.32222222.22211111111110000000000
+        // 1.09876543.21098765432109876543210
         // GGML_ASSERT(!isnan(value));
         union {
             float f;
@@ -89,24 +108,45 @@ struct FP8 {
         in.bits &= 0x7fffffff;
         GGML_ASSERT(in.bits < 0x7f800000); // +/- infini ou NAN
         if (in.f >= MAX()) {
-            bits |= 0x7F; // 0x7E si NAN...
+            bits |= 0x7E; // 0x7F si pas de NAN
         } else if (in.f<MIN()) { // => 0.
             // On est bon: que le signes S.0000000
         } else {
-            int exp = (in.bits>>23 & 0xFF)-127;
-            uint8_t exp_bits = (exp + E_BIAS) & 0xF;
-            // TODO:
+            //int exp = (in.bits>>23 & 0xFF)-127;
+            //uint8_t exp_bits = (exp + E_BIAS) & 0xF;
+            in.f *= EXP2<E_BIAS-127>();
+            bits |= (in.bits >> (23-M)) & 0x7F;
         }
-        //
     }
     // ca serais mieux avec ca:
     //void operator=(bf16_t value) {
     //    ;
     //}
-    static bf16_x32 load(type* ptr);
+    // TODO voir a faire pour plus de cas ...
+    //  bf16_x32
+    //  fp32_x16
+    //  fp32_x8
+    static inline bf16_x32 load(const void* ptr) {
+        auto fp8_8 = _mm256_loadu_epi8(ptr);
+        __m512i fp8_16 = _mm512_cvtepu8_epi16(fp8_8);
+        // extract sign and expo+mantice
+        __m512i sign_16 = _mm512_and_si512(fp8_16, _mm512_set1_epi16(0x80));
+        __m512i em_16   = _mm512_and_si512(fp8_16, _mm512_set1_epi16(0x7F));
+        // shift them
+        sign_16 = _mm512_slli_epi16(sign_16, 8);
+        em_16   = _mm512_slli_epi16(em_16,   E);
+        return _mm512_castsi512_bh(_mm512_or_si512(sign_16,em_16));
+    }
+    static constexpr float CORRECTION() {return EXP2<127-E_BIAS>();}
 private:
 
 };
+
+//         S.EE.MMMMM
+//         S.EEE.MMMM
+// S.EEEEEEEE.MMMMMMM
+// 1.11111000.0000000
+// 5.43210987.6543210
 
 struct _fp32_t {
     union {
@@ -162,6 +202,8 @@ struct _fp32_16x1_t {
 template<typename T> constexpr float MAX() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
 //CORRECTION<T>()
 template<typename T> constexpr float CORRECTION() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
+template<typename T> constexpr float CORRECTION_A() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
+template<typename T> constexpr float CORRECTION_B() {static_assert(false, "doit etre surchargé pour ce type"); return 0;}
 // les conversion a implementer: T2 => T1
 //> conv(T1 dest, const T2 orig): dest = orig
 template<typename T1, typename T2> static inline void conv(T1& dest , const T2& orig) {dest = orig;}
@@ -173,7 +215,12 @@ template<typename T1, typename T2> static inline T1 conv_cast(const T2& orig){
     return res;
 }
 
-template<> constexpr float MAX<f8_E4M3_t>() {return 448;}
+// template<> constexpr float MAX<f8_E4M3_t>() {return 448;}
+template<> constexpr float MAX<f8_E5M2_t>() {return FP8<5>::MAX();}
+template<> constexpr float MAX<f8_E4M3_t>() {return FP8<4>::MAX();}
+template<> constexpr float MAX<f8_E3M4_t>() {return FP8<3>::MAX();}
+template<> constexpr float MAX<f8_E2M5_t>() {return FP8<2>::MAX();}
+
 // [...]
 //============================================
 // - cas general: pour B:
@@ -200,7 +247,7 @@ static inline void conv(fp32_t& dest, const bf16_t orig) {
 //------------------------------------------
 // => f8_E4M3:
 // avec staturation !! (devrais pouvoir etre supprimé si on code le suivant sans lui...)
-static inline void conv(f8_E4M3_t& dest, const fp32_t orig) {
+static inline void conv_(f8_E4M3_t& dest, const fp32_t orig) {
     _fp32_t u;
     u.f = orig;
     // le signe:
@@ -235,12 +282,54 @@ static inline void conv(f8_E4M3_t& dest, const fp32_t orig) {
         dest.bits |= (exp_bits << 3); // | mantissa_bits;
     }
 }
-// bf16 => f8_E4M3 :
+
+static inline void conv(f8_E5M2_t& dest, const fp32_t orig) {
+    FP8<5> conv;
+    conv = orig;
+    dest.bits = conv.bits;
+}
+static inline void conv(f8_E4M3_t& dest, const fp32_t orig) {
+    FP8<4> conv;
+    conv = orig;
+    //conv_(dest, orig);
+    //if (dest.bits != conv.bits)
+    //    std::cout << "conv: " <<std::setprecision(10)<< orig << " => " << std::hex << (int)dest.bits << " / " << (int)conv.bits << std::endl;
+    //GGML_ASSERT(dest.bits == conv.bits);
+    dest.bits = conv.bits;
+}
+static inline void conv(f8_E3M4_t& dest, const fp32_t orig) {
+    FP8<3> conv;
+    conv = orig;
+    dest.bits = conv.bits;
+}
+static inline void conv(f8_E2M5_t& dest, const fp32_t orig) {
+    FP8<2> conv;
+    conv = orig;
+    dest.bits = conv.bits;
+}
+
+// bf16 => f8_... :
+static inline void conv(f8_E5M2_t& dest, const bf16_t orig) {
+    fp32_t f;
+    conv(f,orig);
+    conv(dest,f);
+}
 static inline void conv(f8_E4M3_t& dest, const bf16_t orig) {
     fp32_t f;
     conv(f,orig);
     conv(dest,f);
 }
+static inline void conv(f8_E3M4_t& dest, const bf16_t orig) {
+    fp32_t f;
+    conv(f,orig);
+    conv(dest,f);
+}
+static inline void conv(f8_E2M5_t& dest, const bf16_t orig) {
+    fp32_t f;
+    conv(f,orig);
+    conv(dest,f);
+}
+
 /*
 static inline __m512bh
 llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec){
@@ -285,7 +374,8 @@ llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec){
 
 //#define FP8_FULL
 //#define FP8_NO_SUB
-#define FP8_SMALL
+//#define FP8_SMALL
+#define FP8_TEMPLATE
 
 #ifdef FP8_FULL
 template<> constexpr float CORRECTION<f8_E4M3_t>() {return 1;}
@@ -361,6 +451,51 @@ llamafile_fp8_e4m3_to_bf16_avx512(__m256i fp8_vec) {
 }
 #endif
 
+#ifdef FP8_TEMPLATE
+template<> constexpr float CORRECTION<f8_E5M2_t>() {return FP8<5>::CORRECTION();}  // 2^112
+template<> constexpr float CORRECTION<f8_E4M3_t>() {return FP8<4>::CORRECTION();}  // 2^120
+template<> constexpr float CORRECTION<f8_E3M4_t>() {return FP8<3>::CORRECTION();}  // 2^124
+template<> constexpr float CORRECTION<f8_E2M5_t>() {return FP8<2>::CORRECTION();}  // 2^126
+// TODO: faire 2 CORRECTIONS: 1 pour A et 1 pour B... (histoire de limiter les saturations.
+template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return EXP2<64>();}
+template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return EXP2<64>();}
+template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return EXP2<64>();}
+template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return EXP2<64>();}
+template<> constexpr float CORRECTION_A<f8_E5M2_t>() {return FP8<5>::CORRECTION()/CORRECTION_B<f8_E5M2_t>();}
+template<> constexpr float CORRECTION_A<f8_E4M3_t>() {return FP8<4>::CORRECTION()/CORRECTION_B<f8_E4M3_t>();}
+template<> constexpr float CORRECTION_A<f8_E3M4_t>() {return FP8<3>::CORRECTION()/CORRECTION_B<f8_E3M4_t>();}
+template<> constexpr float CORRECTION_A<f8_E2M5_t>() {return FP8<2>::CORRECTION()/CORRECTION_B<f8_E2M5_t>();}
+
+template<typename T, typename TA> T _load_B(const float* X) { static_assert(false, "cas non implementé"); }
+
+template<> inline bf16_x32 _load_B<bf16_x32, bf16_t>(const float *X) {
+    auto x1 = _mm512_loadu_ps(X);
+    auto x2 = _mm512_loadu_ps(X+16);
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+template<> inline bf16_x32 _load_B<bf16_x32, f8_E5M2_t>(const float *X) {
+    auto x1 = _mm512_loadu_ps(X)    * CORRECTION_B<f8_E5M2_t>();
+    auto x2 = _mm512_loadu_ps(X+16) * CORRECTION_B<f8_E5M2_t>();
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+template<> inline bf16_x32 _load_B<bf16_x32, f8_E4M3_t>(const float *X) {
+    auto x1 = _mm512_loadu_ps(X)    * CORRECTION_B<f8_E4M3_t>();
+    auto x2 = _mm512_loadu_ps(X+16) * CORRECTION_B<f8_E4M3_t>();
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+template<> inline bf16_x32 _load_B<bf16_x32, f8_E3M4_t>(const float *X) {
+    auto x1 = _mm512_loadu_ps(X)    * CORRECTION_B<f8_E3M4_t>();
+    auto x2 = _mm512_loadu_ps(X+16) * CORRECTION_B<f8_E3M4_t>();
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+template<> inline bf16_x32 _load_B<bf16_x32, f8_E2M5_t>(const float *X) {
+    auto x1 = _mm512_loadu_ps(X)    * CORRECTION_B<f8_E2M5_t>();
+    auto x2 = _mm512_loadu_ps(X+16) * CORRECTION_B<f8_E2M5_t>();
+    return _mm512_cvtne2ps_pbh(x2,x1);
+}
+
+#endif
+
 //------------------------------------------------------------------------------------
 //  pour C et B_cache.
 //> store(T* , T[N])
@@ -429,6 +564,12 @@ template<> inline bf16_x32 load<bf16_x32, fp32_t>(const fp32_t *X) {
     auto x2 = _mm512_loadu_ps(X+16);
     return _mm512_cvtne2ps_pbh(x2,x1);
 }
+//constexpr auto correction = _mm512_set1_ps(CORRECTION_B<type_A>());
+//for (size_t k=0; k<K1; k+=VS) {
+//    auto b = load<typename type_t<type_AB,VS>::t>(B+k);
+//    store(&B_bloc[k],b);
+//}
+
 template<> inline bf16_x8 load<bf16_x8, fp32_t>(const fp32_t *X) {
     return _mm256_cvtneps_pbh(_mm256_loadu_ps(X));
 }
@@ -443,10 +584,21 @@ template<> inline bf16_x8 load<bf16_x8, bf16_t>(const bf16_t *X) {
     return (__m128bh) _mm_loadu_epi16(X);
 }
 // f8_E4M3_t => bf16_x32
+#ifdef FP8_TEMPLATE
+//template<> inline bf16_x32 load<bf16_x32, f8_E5M2_t>(const f8_E5M2_t *X) { return FP8<5>::load(X); }
+//template<> inline bf16_x32 load<bf16_x32, f8_E4M3_t>(const f8_E4M3_t *X) { return FP8<4>::load(X); }
+//template<> inline bf16_x32 load<bf16_x32, f8_E3M4_t>(const f8_E3M4_t *X) { return FP8<3>::load(X); }
+//template<> inline bf16_x32 load<bf16_x32, f8_E2M5_t>(const f8_E2M5_t *X) { return FP8<2>::load(X); }
+template<> inline bf16_x32 load<bf16_x32>(const f8_E5M2_t *X) { return FP8<5>::load(X); }
+template<> inline bf16_x32 load<bf16_x32>(const f8_E4M3_t *X) { return FP8<4>::load(X); }
+template<> inline bf16_x32 load<bf16_x32>(const f8_E3M4_t *X) { return FP8<3>::load(X); }
+template<> inline bf16_x32 load<bf16_x32>(const f8_E2M5_t *X) { return FP8<2>::load(X); }
+#else
 template<> inline bf16_x32 load<bf16_x32, f8_E4M3_t>(const f8_E4M3_t *X) {
     auto x = _mm256_loadu_epi8(X);
     return llamafile_fp8_e4m3_to_bf16_avx512(x);
 }
+#endif
 
 //------------------------------------------------------------------------------------
 // les madd : C = C+A*B

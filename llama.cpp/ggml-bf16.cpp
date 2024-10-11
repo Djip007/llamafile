@@ -5,12 +5,14 @@ make clean
 make -j16
 make -j16 install PREFIX=/home/philou/LLM/usr/
 
+>----------------------------------------------------------------------------------------------------
 > run:
 export RUN="./usr/bin/llamafile -m Mistral-7B-Instruct-v0.3.BF16.gguf   -c 128 -n 16 -t 0 -s 42 -p "
 export RUN="./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -s 42 -p "
 export RUN_ARGS="[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 > benchmarks:
+export RUN="./usr/bin/llamafile-bench -m Mistral-7B-Instruct-v0.3.BF16.gguf   -n 16 -r 3 -p "
 export RUN="./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -r 3 -p "
 export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512"
 
@@ -18,61 +20,66 @@ export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512"
 export RUN="./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m"
 export RUN_ARGS=Mistral-Nemo-Instruct-2407.BF16.gguf
 
-> les [jart]
+>----------------------------------------------------------------------------------------------------
+> verif ceux d'origine
 $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["NONE     "]'                           $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'                       $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_4x6"]'                       $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_5x5", "BF16_32x1_5x5"]' $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_32x1_4x6", "BF16_32x1_4x6"]' $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["NONE"] $RUN "${RUN_ARGS}"
+
+> les [jart]
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_5x5"]'                   $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_4x6"]'                   $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_C_4x6", "BF16_4x6"]' $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_C_4x6", "BF16_4x6"]' $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_C_4x6", "BF16_4x6"]' $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_C_4x6", "BF16_4x6"]' $RUN "${RUN_ARGS}"
 
 > les miens
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_2x16"                   ]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3N_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"  => KO mais "normal"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K0_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K1_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K2_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K3_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16",  "BF16_2x16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16"               ]'  $RUN "${RUN_ARGS}"
 
-#OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["E4M3_2x16",      "BF16_2x16", "BF16_32x1_5x5"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_C",  "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_K0", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_K1", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_K2", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_K3", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E5M2_B",  "BF16"]'  $RUN "${RUN_ARGS}"
 
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]'  $RUN "${RUN_ARGS}"
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'                $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_C",  "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_K0", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_K1", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_K2", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_K3", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3_B",  "BF16"]'  $RUN "${RUN_ARGS}"
+
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_C",  "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_K0", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_K1", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_K2", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_K3", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_B",  "BF16"]'  $RUN "${RUN_ARGS}"
+
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_C",  "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_K0", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_K1", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_K2", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_K3", "BF16"]'  $RUN "${RUN_ARGS}"
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E2M5_B",  "BF16"]'  $RUN "${RUN_ARGS}"
 
 
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 16 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 # GGML_USE_BACKEND_BF16=1 OMP_NUM_THREADS=8 GOMP_CPU_AFFINITY="0,2,4,6,8,10,12,14" ./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -p "1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512" -r 3
 # celui de reference (llamafile)
 
-
+#=============================================================================
 #> mesure de perplexité:
 // [jart]: 11.7748 vs. 5.6997 ?  (wiki.test.raw?)
 wget https://huggingface.co/datasets/ggml-org/ci/resolve/main/wikitext-2-raw-v1.zip
 unzip wikitext-2-raw-v1.zip
 => wikitext-2-raw/wiki.test.raw
 
-GGML_USE_BACKEND_BF16='["BF16_2x16"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3G_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
-GGML_USE_BACKEND_BF16='["FP8_E4M3B_2x16", "BF16_2x16"]' OMP_NUM_THREADS=8 \
+GGML_USE_BACKEND_BF16='["BF16"]' OMP_NUM_THREADS=8 \
 ./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
 
-
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3C_2x16", "BF16_2x16"]' \
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E4M3K_2x16", "BF16_2x16"]' \
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
-OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'               \
-./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
-
-#./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.valid.raw -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+# ceux de reference:
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q8_0.llamafile
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q6_K.llamafile
@@ -83,13 +90,6 @@ OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16_32x1_5x5"]'               \
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_L.llamafile
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_M.llamafile
 #./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw -ctk bf16 -ctv bf16 -s 31337 -m Mistral-Nemo-Instruct-2407.Q3_K_S.llamafile
-
-// trace des tenseurs
-GGML_SCHED_DEBUG=1 GGML_USE_BACKEND_BF16=1 ./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -n 2 -t 0 -p "[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
-
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:128:1:1/4:20480:2621440:2621440]@f32 => [131072:128:1:1/4:524288:67108864:67108864]@f32)
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
-TRACE> MUL_MAT@result_output (s0(output.weight)[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16, s1(output.weight)[5120:1:1:1/4:20480:20480:20480]@f32 => [131072:1:1:1/4:524288:524288:524288]@f32)
 
  */
 
@@ -130,25 +130,26 @@ static constexpr std::size_t TENSOR_ALIGNMENT = 64; // le meme que pour les buff
 
 namespace ggml::backend::bf16 {
     enum class TYPE {
-        // Tags
         // les types de base sans block (format d'origine)
         FP32 = GGML_TYPE_F32,
-                FP16 = GGML_TYPE_F16,
-                BF16 = GGML_TYPE_BF16,
-                //FP8  = GGML_TYPE_FP8, // F8_E4M3 ???
+        FP16 = GGML_TYPE_F16,
+        BF16 = GGML_TYPE_BF16,
+        //FP8  = GGML_TYPE_FP8, // F8_E4M3 ???
 
-                // les types non d'origine
-                TOUS = GGML_TYPE_COUNT+1,
-                NON_SUPPORTE,
-                E3M4,
-                E4M3,
-                E5M2,
+        // les types non d'origine
+        TOUS = GGML_TYPE_COUNT+1,
+        NON_SUPPORTE,
+        E2M5,
+        E3M4,
+        E4M3,
+        E5M2,
     };
 
     // un helper...  tray_type ??
     template<typename T> struct type_of {using t=void;};
     template<> struct type_of<fp32_t>    { static constexpr TYPE T=TYPE::FP32; static constexpr ggml_type G=GGML_TYPE_F32;   };
     template<> struct type_of<bf16_t>    { static constexpr TYPE T=TYPE::BF16; static constexpr ggml_type G=GGML_TYPE_BF16;  };
+    template<> struct type_of<f8_E2M5_t> { static constexpr TYPE T=TYPE::E2M5; static constexpr ggml_type G=GGML_TYPE_COUNT; };
     template<> struct type_of<f8_E3M4_t> { static constexpr TYPE T=TYPE::E3M4; static constexpr ggml_type G=GGML_TYPE_COUNT; };
     template<> struct type_of<f8_E4M3_t> { static constexpr TYPE T=TYPE::E4M3; static constexpr ggml_type G=GGML_TYPE_COUNT; };
     template<> struct type_of<f8_E5M2_t> { static constexpr TYPE T=TYPE::E5M2; static constexpr ggml_type G=GGML_TYPE_COUNT; };
@@ -266,7 +267,7 @@ namespace ggml::backend::bf16 {
                     case GGML_TYPE_F16:  // fp16 => bf16
                         break; // @ voir...
                     }
-                } else if constexpr ((_T == TYPE::E3M4) || (_T == TYPE::E4M3) || (_T == TYPE::E5M2)) {
+                } else if constexpr ((_T == TYPE::E2M5) || (_T == TYPE::E3M4) || (_T == TYPE::E4M3) || (_T == TYPE::E5M2)) {
                     switch (op->type) {
                     case GGML_TYPE_F32:     // fp32 => fp8_
                     case GGML_TYPE_BF16:    // bf16 => fp8_
@@ -347,7 +348,7 @@ namespace ggml::backend::bf16 {
                 if constexpr(KB==0 && MB==0) { // scale global
                     const float max = orig.max();
                     const float scale = MAX<T>()/max;
-                    const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                    const float inv_scale = (max/MAX<T>())*CORRECTION_A<T>();
                     //dest.set_scale((max/MAX<T>())*CORRECTION<T>(),0,0);
                     dest.set_scale(inv_scale,0,0);
                     //std::cout << "g" << std::flush;
@@ -365,7 +366,7 @@ namespace ggml::backend::bf16 {
                         // 1 coef par colonne
                         const float max = orig.template max<KB,MB>(0,j0);
                         const float scale = MAX<T>()/max;
-                        const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                        const float inv_scale = (max/MAX<T>())*CORRECTION_A<T>();
                         //dest.set_scale((max/MAX<T>())*CORRECTION<T>(),0,j0);
                         dest.set_scale(inv_scale,0,j0);
                         const auto n_end = std::min(orig.DIM2(), j0+MB);
@@ -381,7 +382,7 @@ namespace ggml::backend::bf16 {
                         // 1 coef par ligne
                         const float max = orig.template max<KB,MB>(i0,0);
                         const float scale = MAX<T>()/max;
-                        const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                        const float inv_scale = (max/MAX<T>())*CORRECTION_A<T>();
                         dest.set_scale(inv_scale,i0,0);
                         const auto m_end = std::min(orig.DIM1(), i0+KB);
                         for (int i=i0; i<m_end; i++)
@@ -397,7 +398,7 @@ namespace ggml::backend::bf16 {
                             // 1 coef par bloc
                             const float max = orig.template max<KB,MB>(k0,i0);
                             const float scale = MAX<T>()/max;
-                            const float inv_scale = (max/MAX<T>())*CORRECTION<T>();
+                            const float inv_scale = (max/MAX<T>())*CORRECTION_A<T>();
                             dest.set_scale(inv_scale,k0,i0);
                             const auto k_end = std::min(orig.DIM1(), k0+KB);
                             const auto m_end = std::min(orig.DIM2(), i0+MB);
@@ -470,14 +471,7 @@ namespace ggml::backend::bf16 {
 // - "sgemm" inspired by [jart]:
 #include "ggml-bf16-sgemm.inc"
 // - cas block de BF16:
-//  > gere que les scales global => @ suprimer
 #include "ggml-bf16-bloc.inc"
-#include "ggml-bf16-bloc_T.inc"
-// #include "ggml-bf16-bloc2.inc"
-// #include "ggml-bf16-bloc3.inc"
-// #include "ggml-bf16-bloc4.inc"
-// #include "ggml-bf16-bloc5.inc"
-#include "ggml-bf16-bloc6.inc"
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
@@ -927,48 +921,93 @@ namespace ggml::backend::bf16 {
     //  https://json.nlohmann.me/features/enum_conversion/
     enum class BACKEND_TYPE {
         // [jart] kernel
-        BF16_32x1_5x5,
-        BF16_32x1_4x6,
+        BF16_5x5,
+        BF16_4x6,
         //  - pour bench / reference  [KB,MB]
-        E4M3_32x1_G_5x5,  // [0,0]
-        E4M3_32x1_G_4x6,  // [0,0]
-        E4M3_32x1_C_5x5,  // [0,1]
-        E4M3_32x1_C_4x6,  // [0,1]
-        //E4M3_32x1_B_5x5,  // [KB,1]
-        //E4M3_32x1_B_4x6,  // [KB,1]
+        E5M2_C_4x6,  // [0,1]
+        E4M3_C_4x6,  // [0,1]
+        E3M4_C_4x6,  // [0,1]
+        E2M5_C_4x6,  // [0,1]
+
         // mes kernel  => 2x16x16x{1024,...} ... etc! suivant le CPU
-        BF16_2x16,    // Scale::NONE
-        E4M3_2x16,    // Scale::NONE pour bench seulement..
-        E4M3_2x16_N,  // [0,0] ne marche pas vraiment
-        E4M3_2x16_G,  // [0,0] ne marche pas vraiment
-        E4M3_2x16_C,  // [0,1] mieux
-        E4M3_2x16_K0, // [1024,1] mieux
-        E4M3_2x16_K1, // [ 512,1]
-        E4M3_2x16_K2, // [ 256,1]
-        E4M3_2x16_K3, // [ 128,1]
-        E4M3_2x16_B,  // [KB,16] / [K1,1] surement a faire ... voir a gerer plusieur taille de bloc...
+        BF16,    // Scale::NONE
+
+        E5M2_G,  // [:,:]
+        E4M3_G,  // [:,:]
+        E3M4_G,  // [:,:]
+        E2M5_G,  // [:,:]
+
+        E5M2_C,  // [:,1]
+        E4M3_C,  // [:,1]
+        E3M4_C,  // [:,1]
+        E2M5_C,  // [:,1]
+
+        E5M2_K0, // [1024,1]
+        E4M3_K0, // [1024,1]
+        E3M4_K0, // [1024,1]
+        E2M5_K0, // [1024,1]
+
+        E5M2_K1, // [ 512,1]
+        E4M3_K1, // [ 512,1]
+        E3M4_K1, // [ 512,1]
+        E2M5_K1, // [ 512,1]
+
+        E5M2_K2, // [ 256,1]
+        E4M3_K2, // [ 256,1]
+        E3M4_K2, // [ 256,1]
+        E2M5_K2, // [ 256,1]
+
+        E5M2_K3, // [ 128,1]
+        E4M3_K3, // [ 128,1]
+        E3M4_K3, // [ 128,1]
+        E2M5_K3, // [ 128,1]
+
+        E5M2_B,  // [16,32] ici.
+        E4M3_B,  // [16,32] ici.
+        E3M4_B,  // [16,32] ici.
+        E2M5_B,  // [16,32] ici.
+
         INVALID
     };
     NLOHMANN_JSON_SERIALIZE_ENUM( BACKEND_TYPE, {
             {BACKEND_TYPE::INVALID, nullptr},
-            {BACKEND_TYPE::BF16_32x1_5x5, "BF16_32x1_5x5"},
-            {BACKEND_TYPE::BF16_32x1_4x6, "BF16_32x1_4x6"},
-            {BACKEND_TYPE::E4M3_32x1_G_5x5, "FP8_E4M3G_32x1_5x5"},
-            {BACKEND_TYPE::E4M3_32x1_G_4x6, "FP8_E4M3G_32x1_4x6"},
-            {BACKEND_TYPE::E4M3_32x1_C_5x5, "FP8_E4M3C_32x1_5x5"},
-            {BACKEND_TYPE::E4M3_32x1_C_4x6, "FP8_E4M3C_32x1_4x6"},
+            {BACKEND_TYPE::BF16_5x5, "BF16_5x5"},
+            {BACKEND_TYPE::BF16_4x6, "BF16_4x6"},
+            {BACKEND_TYPE::E5M2_C_4x6,  "FP8_E5M2_C_4x6"},
+            {BACKEND_TYPE::E4M3_C_4x6,  "FP8_E4M3_C_4x6"},
+            {BACKEND_TYPE::E3M4_C_4x6,  "FP8_E3M4_C_4x6"},
+            {BACKEND_TYPE::E2M5_C_4x6,  "FP8_E2M5_C_4x6"},
 
-            {BACKEND_TYPE::BF16_2x16, "BF16_2x16"},
-            {BACKEND_TYPE::E4M3_2x16, "E4M3_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_N, "FP8_E4M3N_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_G, "FP8_E4M3G_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_C, "FP8_E4M3C_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_K0, "FP8_E4M3K0_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_K1, "FP8_E4M3K1_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_K2, "FP8_E4M3K2_2x16"},
-            {BACKEND_TYPE::E4M3_2x16_K3, "FP8_E4M3K3_2x16"},
+            {BACKEND_TYPE::BF16, "BF16"},
 
-            {BACKEND_TYPE::E4M3_2x16_B, "FP8_E4M3B_2x16"},
+            {BACKEND_TYPE::E5M2_C,  "FP8_E5M2_C"},
+            {BACKEND_TYPE::E5M2_K0, "FP8_E5M2_K0"},
+            {BACKEND_TYPE::E5M2_K1, "FP8_E5M2_K1"},
+            {BACKEND_TYPE::E5M2_K2, "FP8_E5M2_K2"},
+            {BACKEND_TYPE::E5M2_K3, "FP8_E5M2_K3"},
+            {BACKEND_TYPE::E5M2_B,  "FP8_E5M2_B"},
+
+            {BACKEND_TYPE::E4M3_C,  "FP8_E4M3_C"},
+            {BACKEND_TYPE::E4M3_K0, "FP8_E4M3_K0"},
+            {BACKEND_TYPE::E4M3_K1, "FP8_E4M3_K1"},
+            {BACKEND_TYPE::E4M3_K2, "FP8_E4M3_K2"},
+            {BACKEND_TYPE::E4M3_K3, "FP8_E4M3_K3"},
+            {BACKEND_TYPE::E4M3_B,  "FP8_E4M3_B"},
+
+            {BACKEND_TYPE::E3M4_C,  "FP8_E3M4_C"},
+            {BACKEND_TYPE::E3M4_K0, "FP8_E3M4_K0"},
+            {BACKEND_TYPE::E3M4_K1, "FP8_E3M4_K1"},
+            {BACKEND_TYPE::E3M4_K2, "FP8_E3M4_K2"},
+            {BACKEND_TYPE::E3M4_K3, "FP8_E3M4_K3"},
+            {BACKEND_TYPE::E3M4_B,  "FP8_E3M4_B"},
+
+            {BACKEND_TYPE::E2M5_C,  "FP8_E2M5_C"},
+            {BACKEND_TYPE::E2M5_K0, "FP8_E2M5_K0"},
+            {BACKEND_TYPE::E2M5_K1, "FP8_E2M5_K1"},
+            {BACKEND_TYPE::E2M5_K2, "FP8_E2M5_K2"},
+            {BACKEND_TYPE::E2M5_K3, "FP8_E2M5_K3"},
+            {BACKEND_TYPE::E2M5_B,  "FP8_E2M5_B"},
+
     })
 #define DECODE_TYPE(val) val.template get<BACKEND_TYPE>()
 
@@ -980,112 +1019,195 @@ namespace ggml::backend::bf16 {
 
         //std::string backend_config{getenv("GGML_USE_BACKEND_BF16")};
         json backend_config = json::parse(getenv("GGML_USE_BACKEND_BF16"));
-        //  '[ "BF16_32x1", ... ]'
-        std::cout << backend_config.dump(4) << std::endl;
+        //std::cout << backend_config.dump(4) << std::endl;
         ggml::backend::bf16::matmul_ops.clear();
 
         json j;
-
         std::vector<BACKEND_TYPE> backend_list = backend_config;
         for (auto b : backend_list) {
             j["backend"] = b;
             std::cout << "BF16 register:" << j << std::endl;
             switch (b) {
-            case BACKEND_TYPE::BF16_32x1_5x5:
+            case BACKEND_TYPE::BF16_5x5:
                 // les "JART" en dernier de preferance.
                 ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,32>::type());
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, Scale::NONE,0,0, 8, 3>);
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, Scale::NONE,0,0, 5, 5>);
                 break;
-            case BACKEND_TYPE::BF16_32x1_4x6:
+            case BACKEND_TYPE::BF16_4x6:
                 // les "JART" en dernier de preferance.
                 ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,32>::type());
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<bf16_t, Scale::NONE,0,0, 8, 3>);
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<bf16_t, Scale::NONE,0,0, 4, 6>);
                 break;
-            case BACKEND_TYPE::E4M3_32x1_G_5x5:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC>::type());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,0,0, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,0,0, 5, 5>);
+            //case BACKEND_TYPE::E4M3_32x1_G_4x6:
+            //    ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC>::type());
+            //    ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,0,0, 8, 3>);
+            //    ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,0,0, 4, 6>);
+            //    break;
+            case BACKEND_TYPE::E5M2_C_4x6:
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor  <f8_E5M2_t,32,0,0,Scale::BLOC,1>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E5M2_t, Scale::BLOC,1,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E5M2_t, Scale::BLOC,1,0, 4, 6>);
                 break;
-            case BACKEND_TYPE::E4M3_32x1_G_4x6:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC>::type());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,0,0, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,0,0, 4, 6>);
-                break;
-            case BACKEND_TYPE::E4M3_32x1_C_5x5:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC,1>::type());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,1,0, 8, 3>);
-                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,1,0, 5, 5>);
-                break;
-            case BACKEND_TYPE::E4M3_32x1_C_4x6:
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,32,0,0,Scale::BLOC,1>::type());
+            case BACKEND_TYPE::E4M3_C_4x6:
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor  <f8_E4M3_t,32,0,0,Scale::BLOC,1>::type());
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E4M3_t, Scale::BLOC,1,0, 8, 3>);
                 ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E4M3_t, Scale::BLOC,1,0, 4, 6>);
                 break;
-                //case BACKEND_TYPE::E4M3_32x1_B_5x5:
-                //case BACKEND_TYPE::E4M3_32x1_B_4x6:
-            case BACKEND_TYPE::BF16_2x16:
-                // @ remplacer...
-                //ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<bf16_t,2,16>::type());
-                //ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<bf16_t>);
-            {
-                //using matmul = ggml::bf16::op_matmul::bf16_2x16_T<bf16_t,16,16,2,1024>; //,Scale::NONE>;
-                using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>; //,Scale::NONE>;
-                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
-                ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            }
-            break;
-            case BACKEND_TYPE::E4M3_2x16:
-                // @ remplacer...
-                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor<f8_E4M3_t,2,16>::type());
-                ggml::backend::bf16::matmul_ops.push_back(new ggml::bf16::op_matmul::bf16_2x16_NONE<f8_E4M3_t>);
-                //{
-                //    using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024>; //,Scale::NONE>;
-                //    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
-                //    ggml::backend::bf16::matmul_ops.push_back(new matmul);
-                //}
+            case BACKEND_TYPE::E3M4_C_4x6:
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor  <f8_E3M4_t,32,0,0,Scale::BLOC,1>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E3M4_t, Scale::BLOC,1,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E3M4_t, Scale::BLOC,1,0, 4, 6>);
                 break;
-            case BACKEND_TYPE::E4M3_2x16_N: { // n'a de chance que si vrai decodage!
-                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024>;
+            case BACKEND_TYPE::E2M5_C_4x6:
+                ggml::backend::bf16::tensors.push_back(ggml::backend::bf16::tensor  <f8_E2M5_t,32,0,0,Scale::BLOC,1>::type());
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_tg<f8_E2M5_t, Scale::BLOC,1,0, 8, 3>);
+                ggml::backend::bf16::matmul_ops.push_back(new ggml_bf16_op_matmul_pp<f8_E2M5_t, Scale::BLOC,1,0, 4, 6>);
+                break;
+
+            //===================================================================================
+            case BACKEND_TYPE::BF16: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_G: {
-                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
+
+            //case BACKEND_TYPE::E4M3_2x16_G: {
+            //    using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
+            //    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+            //    ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            //} break;
+
+            //-----------------------------------------------------------------------------------
+            case BACKEND_TYPE::E5M2_C: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,1>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_C: {
+            case BACKEND_TYPE::E5M2_K0: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,1,1024>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E5M2_K1: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,1,512>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E5M2_K2: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,1,256>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E5M2_K3: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,1,128>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E5M2_B: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC,16,32>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+
+            //-----------------------------------------------------------------------------------
+            case BACKEND_TYPE::E4M3_C: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_K0: {
+            case BACKEND_TYPE::E4M3_K0: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,1024>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_K1: {
+            case BACKEND_TYPE::E4M3_K1: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,512>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_K2: {
+            case BACKEND_TYPE::E4M3_K2: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,256>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_K3: {
+            case BACKEND_TYPE::E4M3_K3: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,1,128>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
-            case BACKEND_TYPE::E4M3_2x16_B: {
+            case BACKEND_TYPE::E4M3_B: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC,16,32>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
+
+            //-----------------------------------------------------------------------------------
+            case BACKEND_TYPE::E3M4_C: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_K0: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1,1024>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_K1: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1,512>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_K2: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1,256>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_K3: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1,128>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_B: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,16,32>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+
+            //-----------------------------------------------------------------------------------
+            case BACKEND_TYPE::E2M5_C: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,1>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E2M5_K0: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,1,1024>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E2M5_K1: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,1,512>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E2M5_K2: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,1,256>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E2M5_K3: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,1,128>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E2M5_B: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E2M5_t,16,16,2,1024,Scale::BLOC,16,32>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+
+            //-----------------------------------------------------------------------------------
             case BACKEND_TYPE::INVALID:
                 std::cout << " > ERREUR: BF16_Backend non connu"<< std::endl;
                 break;

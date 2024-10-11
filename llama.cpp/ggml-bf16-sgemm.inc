@@ -47,7 +47,8 @@ static void sgemm_bf16x32(const TA *pA, const TB *pB, TC *pC, std::size_t lda, s
         for(size_t j=0; j<N; j++) {
             __m512bh B;
             // gestion d'un cache pour B
-            if constexpr(ACT!=ACTION::LOAD) B = load<__m512bh>(pB+j*ldb+k);
+            //if constexpr(ACT!=ACTION::LOAD) B = load<__m512bh>(pB+j*ldb+k);
+            if constexpr(ACT!=ACTION::LOAD) B = _load_B<__m512bh,TA>(pB+j*ldb+k);
             if constexpr(ACT==ACTION::LOAD) B = load<__m512bh>(pB_+j*ldb_+k);
 #pragma GCC unroll M
             for(size_t i=0; i<M; i++) {

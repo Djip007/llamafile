@@ -1,3 +1,82 @@
+# FP8 experiment
+
+This branch have an experimental backend for zen4 CPU (may be work with zen5). All matmul is done with AVX512_BF16 using dot2 on bf16 .
+
+It is able to re-order the weight, and convert in FP8 on the fly, when you give it a BF16 quantized model.
+
+For now the speed is prety good. But in that state it can be used to test the FP8 "quantisation".
+
+It support most of FP8 format: E5M2 / E4M3 / E3M4 / E2M5. [ref](https://github.com/IntelLabs/FP8-Emulation-Toolkit)
+
+If we can have some result with direct convertion from BF16-weight => FP8, it is not really accurate. To have better I test to apply a scale factor: 
+  FP16 = scale * FP8.
+I implement diferent scale:
+- G: a global scale:  A<bf16>[m,n] = A<fp8>[m,n]*scale
+- C: a scale per colonne: A<bf16>[m,n] = A<fp8>[m,n]*scale[n]
+- Kn: a scale per bloc of colonne: A<bf16>[m,n] = A<fp8>[m,n]*scale[m/M,n]
+   - n=0 <=> M=1024 (ie we have a scale for 1024 element in A.
+   - n=1 <=> M=512
+   - n=2 <=> M=256
+   - n=3 <=> M=128
+- B: a scale per "bloc": A<bf16>[m,n] = A<fp8>[m,n]*scale[m/32,n/16]
+
+The build is the same as llamafile.
+I use openmp for parallelisme so use OMP_NUM_THREADS=N (N=nb_core) for change the number of thread to use (I do not have wired the --thread param sorry )
+For activate the backend you need to define a env var GGML_USE_BACKEND_BF16.
+
+```sh
+# to test the ref backend with BF16 :
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["BF16"]' llamafile -m <model> ...
+
+# to test fp8 use for exemple
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E3M4_C",  "BF16"]' llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf ...
+
+# the general forme is 
+OMP_NUM_THREADS=8  GGML_USE_BACKEND_BF16='["FP8_E<x>M<y>_<z>",  "BF16"]' llamafile{,bench,perplexity} -m <model.BF16.gguf> ...
+
+# E<x>M<y> in {E5M2, E4M3, E3M4, E2M5}
+# <z> in {C, K0, K1, K2, K3, B}
+```
+
+what I can have for perplexity with: 
+```sh
+GGML_USE_BACKEND_BF16='["FP8_E<x>M<y>_<z>",  "BF16"]' llamafile-perplexity \
+ -f wikitext-2-raw/wiki.test.raw  -s 31337 -m Mistral-Nemo-Instruct-2407.BF16.gguf
+```
+
+
+|      |    G    |    C    |    K0   |    K1   |    K2   |    K3   |    B    |
+| ---: | ------: | ------: | ------: | ------: | ------: | ------: | ------: |
+| E5M2 |         |         |  6.7447 |         |         |         |         |
+| E4M3 | 10.7782 |  6.4238 |  6.4214 |  6.4177 |  6.4153 |  6.4156 |  6.4181 |
+| E3M4 | 19.1127 |  6.3625 |  6.3535 |         |  6.3501 |         |         |
+| E2M5 |         |         | 30.4841 |         |         |         |         |
+
+
+for comparison I get with this model: 
+- BF16   : PPL = 6.3397 +/- 0.03895
+- Q8_0   : PPL = 6.3445 +/- 0.03898
+- Q6_K   : PPL = 6.3745 +/- 0.03915
+- Q5_K_M : PPL = 6.3969 +/- 0.03943
+- Q5_K_S : PPL = 6.4410 +/- 0.03988
+
+## limitation:
+
+I can't quantize all weight... for now I have chosen to quantize this weight:
+
+```cpp
+        static constexpr std::list<std::string> LIST_WEIGHT_CONVERT() { return {
+            "ffn_down.weight",
+            "ffn_gate.weight",
+            "ffn_up.weight",
+            "ttn_k.weight",
+            "ttn_q.weight",
+            "ttn_v.weight",
+            "ttn_output.weight",
+        };}
+```
+
+-------------------------------------------------------
 # llamafile
 
 [![ci status](https://github.com/Mozilla-Ocho/llamafile/actions/workflows/ci.yml/badge.svg)](https://github.com/Mozilla-Ocho/llamafile/actions/workflows/ci.yml)<br/>
