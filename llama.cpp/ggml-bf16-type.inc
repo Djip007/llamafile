@@ -115,9 +115,28 @@ struct FP8 {
             //int exp = (in.bits>>23 & 0xFF)-127;
             //uint8_t exp_bits = (exp + E_BIAS) & 0xF;
             in.f *= EXP2<E_BIAS-127>();
+            in.bits += 1<<(22-M); // pour arondir au plus proche.
             bits |= (in.bits >> (23-M)) & 0x7F;
         }
     }
+/*
+    float () {
+        union {
+            float f;
+            uint32_t bits;
+        } out = {0};
+        // le signe:
+        out.bits = bits & 0x80;
+        out.bits << 24;
+        // TODO: traiter les cas NAN
+        // la valeur sans la signe!
+        uint32_t _bits = bits & 0x7F;
+        _bits << (23-M);
+        out.bits |= _bits;
+        out.f *= EXP2<127-E_BIAS>();
+        return out.f;
+    }
+*/
     // ca serais mieux avec ca:
     //void operator=(bf16_t value) {
     //    ;
@@ -456,11 +475,15 @@ template<> constexpr float CORRECTION<f8_E5M2_t>() {return FP8<5>::CORRECTION();
 template<> constexpr float CORRECTION<f8_E4M3_t>() {return FP8<4>::CORRECTION();}  // 2^120
 template<> constexpr float CORRECTION<f8_E3M4_t>() {return FP8<3>::CORRECTION();}  // 2^124
 template<> constexpr float CORRECTION<f8_E2M5_t>() {return FP8<2>::CORRECTION();}  // 2^126
-// TODO: faire 2 CORRECTIONS: 1 pour A et 1 pour B... (histoire de limiter les saturations.
+// avec 2 CORRECTIONS: 1 pour A et 1 pour B... (histoire de limiter les saturations.
 template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return EXP2<64>();}
 template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return EXP2<64>();}
 template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return EXP2<64>();}
 template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return EXP2<64>();}
+//template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return 1;}
+//template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return 1;}
+//template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return 1;}
+//template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return 1;}
 template<> constexpr float CORRECTION_A<f8_E5M2_t>() {return FP8<5>::CORRECTION()/CORRECTION_B<f8_E5M2_t>();}
 template<> constexpr float CORRECTION_A<f8_E4M3_t>() {return FP8<4>::CORRECTION()/CORRECTION_B<f8_E4M3_t>();}
 template<> constexpr float CORRECTION_A<f8_E3M4_t>() {return FP8<3>::CORRECTION()/CORRECTION_B<f8_E3M4_t>();}

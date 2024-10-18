@@ -199,6 +199,11 @@ namespace ggml::bf16::op_matmul {
             }
         }
 
+        // void _mm_store_ss (float* mem_addr, __m128 a)
+        //__m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
+        //auto _B = _mm512_broadcastd_2pbh(B);
+        //B = _mm_shiftl_2pbh(B);
+        //  => TODO tester avec transpose...
         inline void bloc_B(type_AB B_bloc[K1], const type_B* B) const {
             // KB la taille du vecteur de calcul : celuis de l'AVX utilisé
             // le "mieux" serait encore de reformater B_bloc[K1/K0][N][K0] ...
@@ -235,8 +240,12 @@ namespace ggml::bf16::op_matmul {
         }
 
         void mul_mat(const matA_t& A, const matB_t& B, matC_t& C) const {
-            constexpr size_t N1 = 8; // 1; //4; //8;
-            constexpr size_t M1 = 8; // 1; //4; //8;
+            //constexpr size_t M1 =  4; // 1; //4; //8;
+            //constexpr size_t N1 = 16; // 1; //4; //8;
+            constexpr size_t M1 =  4; // 1; //4; //8;
+            constexpr size_t N1 = 32; // 1; //4; //8;
+            //constexpr size_t M1 = 16; // 1; //4; //8;
+            //constexpr size_t N1 = 64; // 1; //4; //8;
 
             const auto m = C.DIM1(); // == A.DIM2()
             const auto n = C.DIM2(); // == B.DIM2()
@@ -301,7 +310,8 @@ namespace ggml::bf16::op_matmul {
                         }
                         //#pragma omp for schedule(dynamic, 8)
                         //#pragma omp for schedule(static, 8)
-#pragma omp for schedule(guided)
+//#pragma omp for schedule(guided)
+#pragma omp for
                         //#pragma omp parallel for private(C_bloc) shared(B_cache) schedule(guided)
                         // loop 3
                         for (size_t i2=0; i2<m; i2+=M1*M0) { // parcours de bloc A[M0][K1]

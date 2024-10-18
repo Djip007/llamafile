@@ -12,9 +12,10 @@ export RUN="./usr/bin/llamafile -m Mistral-Nemo-Instruct-2407.BF16.gguf -c 128 -
 export RUN_ARGS="[INST]bonjour a tu un nom. je ne sais pas comment t'appeler. Si tu n'en as pas je peux t'appeler TINTIN[/INST]"
 
 > benchmarks:
+export RUN="./usr/bin/llamafile-bench -m Meta-Llama-3.1-8B-Instruct.BF16.llamafile   -n 16 -r 3 -p "
 export RUN="./usr/bin/llamafile-bench -m Mistral-7B-Instruct-v0.3.BF16.gguf   -n 16 -r 3 -p "
 export RUN="./usr/bin/llamafile-bench -m Mistral-Nemo-Instruct-2407.BF16.gguf -n 16 -r 3 -p "
-export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512"
+export RUN_ARGS="1,1,1,2,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,32,64,128,256,512,1024,2048,4096"
 
 > mesure de perplexité:
 export RUN="./usr/bin/llamafile-perplexity -f wikitext-2-raw/wiki.test.raw  -s 31337 -m"
@@ -472,6 +473,26 @@ namespace ggml::backend::bf16 {
 #include "ggml-bf16-sgemm.inc"
 // - cas block de BF16:
 #include "ggml-bf16-bloc.inc"
+#include "ggml-bf16-bloc2.inc"
+
+// TODO tester un cas  C[32][8/12]  => C_v16[2][8/12]
+//   - avantage sans repack de B 1 load => 2 usage
+//  C[16][16]    => B=32k / 16+1+1 reg / 17 load / 32+32 =  64 valeurs / 16 op  => 1,0625  / 4
+//  C[8][2][16]  => B=16k / 16+2+1 reg / 10 load / 64+16 =  80 valeurs / 16 op  => 0,625   / 5
+//  C[5][5][16]  => B=10k / 25+5+1 reg / 10 load / 10x32 = 320 valeur  / 25 op  => 0,4     / 12,8
+//  C[24][16]    => B=48k / 24+1+1 reg / 25 load / 32+48 =  80 valeurs / 24 op  => 1,04167 / 3,33333
+//  C[12][2][16] => B=24k / 24+2+1 reg / 14 load / 64+24 =  88 valeurs / 24 op  => 0,58333 / 3,66667
+
+// => @ tester
+//  A[k/K1][m/M2xM1] [M2][K1/K0][M1/M0][M0][K0]
+//  B[n/N1*N0][k/K1] [N1][N0][K1/K0][K0]
+//  C                [N0][M1/M0][M0]
+
+// sinon tester le repack sur B et faire 1 load/16 dispatch
+//__m128bh B = _mm256_cvtneps_pbh(_mm256_loadu_ps(pB+j*ldb+k2));
+//auto _B = _mm512_broadcastd_2pbh(B);
+//B = _mm_shiftl_2pbh(B);
+//
 
 //////////////////////////////////////////////////////////////////////////////////
 // l'init du backend:
@@ -507,6 +528,7 @@ namespace ggml::backend::bf16::buffer {
             "ttn_q.weight",
             "ttn_v.weight",
             "ttn_output.weight",
+            "output.weight",
         };}
         static constexpr std::list<std::string> LIST_WEIGHT_REORDER() { return {
             "ffn_down.weight",
@@ -517,6 +539,7 @@ namespace ggml::backend::bf16::buffer {
             "ttn_v.weight",
             "ttn_output.weight",
             "output.weight",
+            // token_embd.weight
         };}
         // transforme: tensor<bf16_t,32,0,0,NONE>+output.weight[5120:131072:1:1/2:10240:1342177280:1342177280]@bf16
         // pas convertible mais OK pour reformater ???
@@ -980,6 +1003,10 @@ namespace ggml::backend::bf16 {
 
             {BACKEND_TYPE::BF16, "BF16"},
 
+            {BACKEND_TYPE::E5M2_G,  "FP8_E5M2_G"},
+            {BACKEND_TYPE::E4M3_G,  "FP8_E4M3_G"},
+            {BACKEND_TYPE::E3M4_G,  "FP8_E3M4_G"},
+
             {BACKEND_TYPE::E5M2_C,  "FP8_E5M2_C"},
             {BACKEND_TYPE::E5M2_K0, "FP8_E5M2_K0"},
             {BACKEND_TYPE::E5M2_K1, "FP8_E5M2_K1"},
@@ -1069,15 +1096,27 @@ namespace ggml::backend::bf16 {
             //===================================================================================
             case BACKEND_TYPE::BF16: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<bf16_t,16,16,2,1024>;
+                //using matmul = ggml::bf16::op_matmul::bf16_2x16_C<bf16_t,16,16,2,1024>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
 
-            //case BACKEND_TYPE::E4M3_2x16_G: {
-            //    using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
-            //    ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
-            //    ggml::backend::bf16::matmul_ops.push_back(new matmul);
-            //} break;
+            //-----------------------------------------------------------------------------------
+            case BACKEND_TYPE::E5M2_G: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E5M2_t,16,16,2,1024,Scale::BLOC>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E4M3_G: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E4M3_t,16,16,2,1024,Scale::BLOC>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
+            case BACKEND_TYPE::E3M4_G: {
+                using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC>;
+                ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
+                ggml::backend::bf16::matmul_ops.push_back(new matmul);
+            } break;
 
             //-----------------------------------------------------------------------------------
             case BACKEND_TYPE::E5M2_C: {
@@ -1146,6 +1185,7 @@ namespace ggml::backend::bf16 {
             //-----------------------------------------------------------------------------------
             case BACKEND_TYPE::E3M4_C: {
                 using matmul = ggml::bf16::op_matmul::bf16_2x16<f8_E3M4_t,16,16,2,1024,Scale::BLOC,1>;
+                //using matmul = ggml::bf16::op_matmul::bf16_2x16_C<f8_E3M4_t,16,16,2,1024,Scale::BLOC>;
                 ggml::backend::bf16::tensors.push_back(matmul::tensorA_t::type());
                 ggml::backend::bf16::matmul_ops.push_back(new matmul);
             } break;
