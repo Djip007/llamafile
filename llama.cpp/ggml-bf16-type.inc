@@ -2,6 +2,7 @@
 #include "ggml.h"
 
 // x86 => https://www.intel.com/content/www/us/en/docs/intrinsics-guide/index.html#
+// build: https://godbolt.org/
 
 // voir quel type gerer...
 // - quel format
@@ -119,8 +120,8 @@ struct FP8 {
             bits |= (in.bits >> (23-M)) & 0x7F;
         }
     }
-/*
-    float () {
+
+    operator float () const {
         union {
             float f;
             uint32_t bits;
@@ -136,7 +137,12 @@ struct FP8 {
         out.f *= EXP2<127-E_BIAS>();
         return out.f;
     }
-*/
+
+// __m512i _mm512_unpackhi_epi16 (__m512i a, __m512i b)
+
+//#define V1
+#define V2
+//#define V3
     // ca serais mieux avec ca:
     //void operator=(bf16_t value) {
     //    ;
@@ -145,6 +151,10 @@ struct FP8 {
     //  bf16_x32
     //  fp32_x16
     //  fp32_x8
+    // en fait c'est pas cool de faire comme ca 
+    //  - OK pour les FP32 qui gerent les subnormal
+    //  - KO pour les BF16, le dot2 ne gere pas les subnormals!!!!
+#ifdef V1
     static inline bf16_x32 load(const void* ptr) {
         auto fp8_8 = _mm256_loadu_epi8(ptr);
         __m512i fp8_16 = _mm512_cvtepu8_epi16(fp8_8);
@@ -157,6 +167,74 @@ struct FP8 {
         return _mm512_castsi512_bh(_mm512_or_si512(sign_16,em_16));
     }
     static constexpr float CORRECTION() {return EXP2<127-E_BIAS>();}
+#endif
+    // code "correct" mais beaucoups plus lent...
+    //  - surement possible sur GPU...
+    //  - sur CPU on peu faire sans, ca ne change pas vraiment les resultats.
+#ifdef V2
+    static inline bf16_x32 load(const void* ptr) {
+        //auto fp8 = _mm256_loadu_epi8(ptr);
+        //auto fp8_1 = _mm256_extractf128_si256(fp8, 0);
+        //auto fp8_2 = _mm256_extractf128_si256(fp8, 1);
+        auto fp8_1 = _mm_loadu_epi8(ptr);
+        auto fp8_2 = _mm_loadu_epi8((void*)(((size_t)ptr)+16));
+    
+        __m512i fp32i_1 = _mm512_cvtepu8_epi32(fp8_1);
+        __m512i fp32i_2 = _mm512_cvtepu8_epi32(fp8_2);
+
+        // extract sign and expo+mantice
+        __m512i sign_1 = _mm512_and_si512(fp32i_1, _mm512_set1_epi32(0x80));
+        __m512i sign_2 = _mm512_and_si512(fp32i_2, _mm512_set1_epi32(0x80));
+        __m512i em_1   = _mm512_and_si512(fp32i_1, _mm512_set1_epi32(0x7F));
+        __m512i em_2   = _mm512_and_si512(fp32i_2, _mm512_set1_epi32(0x7F));
+
+        // shift them
+        sign_1 = _mm512_slli_epi32(sign_1, 8+16);
+        em_1   = _mm512_slli_epi32(em_1,   E+16);
+        sign_2 = _mm512_slli_epi32(sign_2, 8+16);
+        em_2   = _mm512_slli_epi32(em_2,   E+16);
+        
+        __m512 fp32_1 = _mm512_castsi512_ps(_mm512_or_si512(sign_1,em_1));
+        __m512 fp32_2 = _mm512_castsi512_ps(_mm512_or_si512(sign_2,em_2));
+        
+        __m512 fact = _mm512_set1_ps(EXP2<127-E_BIAS>());
+        fp32_1 = _mm512_mul_ps(fp32_1, fact);
+        fp32_2 = _mm512_mul_ps(fp32_2, fact);
+        
+        return _mm512_cvtne2ps_pbh(fp32_2, fp32_1);
+    }
+    static constexpr float CORRECTION() {return 1;}
+#endif
+
+#ifdef V3
+    static inline bf16_x32 load(const void* ptr) {
+        auto fp8_8 = _mm256_loadu_epi8(ptr);
+        __m512i fp8_16 = _mm512_cvtepu8_epi16(fp8_8);
+        // extract sign and expo+mantice
+        __m512i sign_16 = _mm512_and_si512(fp8_16, _mm512_set1_epi16(0x80));
+        __m512i em_16   = _mm512_and_si512(fp8_16, _mm512_set1_epi16(0x7F));
+        // shift them
+        sign_16 = _mm512_slli_epi16(sign_16, 8);
+        em_16   = _mm512_slli_epi16(em_16,   E);
+
+        auto bf16 = _mm512_or_si512(sign_16,em_16);
+
+        auto fp32i_1 = _mm512_cvtepu16_epi32(_mm512_extracti32x8_epi32(bf16, 0));
+        auto fp32i_2 = _mm512_cvtepu16_epi32(_mm512_extracti32x8_epi32(bf16, 1));
+        auto fp32_1 = (__m512)_mm512_slli_epi32(fp32i_1, 16);
+        auto fp32_2 = (__m512)_mm512_slli_epi32(fp32i_2, 16);
+        // Note: ca fait exactement pareil
+        //auto fp32_1 = _mm512_cvtpbh_ps((__m256bh)_mm512_extracti32x8_epi32(bf16, 0));
+        //auto fp32_2 = _mm512_cvtpbh_ps((__m256bh)_mm512_extracti32x8_epi32(bf16, 1));
+
+        __m512 fact = _mm512_set1_ps(EXP2<127-E_BIAS>());
+        fp32_1 = _mm512_mul_ps(fp32_1, fact);
+        fp32_2 = _mm512_mul_ps(fp32_2, fact);
+        
+        return _mm512_cvtne2ps_pbh(fp32_2, fp32_1);
+    }
+    static constexpr float CORRECTION() {return 1;}
+#endif
 private:
 
 };
@@ -476,14 +554,14 @@ template<> constexpr float CORRECTION<f8_E4M3_t>() {return FP8<4>::CORRECTION();
 template<> constexpr float CORRECTION<f8_E3M4_t>() {return FP8<3>::CORRECTION();}  // 2^124
 template<> constexpr float CORRECTION<f8_E2M5_t>() {return FP8<2>::CORRECTION();}  // 2^126
 // avec 2 CORRECTIONS: 1 pour A et 1 pour B... (histoire de limiter les saturations.
-template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return EXP2<64>();}
-template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return EXP2<64>();}
-template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return EXP2<64>();}
-template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return EXP2<64>();}
-//template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return 1;}
-//template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return 1;}
-//template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return 1;}
-//template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return 1;}
+//template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return EXP2<64>();}
+//template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return EXP2<64>();}
+//template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return EXP2<64>();}
+//template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return EXP2<64>();}
+template<> constexpr float CORRECTION_B<f8_E5M2_t>() {return 1;}
+template<> constexpr float CORRECTION_B<f8_E4M3_t>() {return 1;}
+template<> constexpr float CORRECTION_B<f8_E3M4_t>() {return 1;}
+template<> constexpr float CORRECTION_B<f8_E2M5_t>() {return 1;}
 template<> constexpr float CORRECTION_A<f8_E5M2_t>() {return FP8<5>::CORRECTION()/CORRECTION_B<f8_E5M2_t>();}
 template<> constexpr float CORRECTION_A<f8_E4M3_t>() {return FP8<4>::CORRECTION()/CORRECTION_B<f8_E4M3_t>();}
 template<> constexpr float CORRECTION_A<f8_E3M4_t>() {return FP8<3>::CORRECTION()/CORRECTION_B<f8_E3M4_t>();}
