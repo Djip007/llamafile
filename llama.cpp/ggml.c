@@ -2738,7 +2738,7 @@ struct ggml_tensor * ggml_set_i32 (struct ggml_tensor * tensor, int32_t value) {
             } break;
         case GGML_TYPE_FP8:
             {
-                assert(tensor->nb[0] == sizeof(ggml_fp16_t));
+                assert(tensor->nb[0] == sizeof(ggml_fp8_t));
                 for (int i = 0; i < n; i++) {
                     ggml_vec_set_fp8(nc, (ggml_fp8_t *)(data + i*n1), GGML_FP32_TO_FP8(value));
                 }
@@ -18478,8 +18478,7 @@ struct ggml_cplan ggml_graph_plan(const struct ggml_cgraph * cgraph, int n_threa
                     const int64_t ne11 = node->src[1]->ne[1];  // Cin
 
                     if ((node->src[0]->type == GGML_TYPE_F16 ||
-                         node->src[0]->type == GGML_TYPE_BF16 ||
-                         node->src[0]->type == GGML_TYPE_FP8) &&
+                         node->src[0]->type == GGML_TYPE_BF16) &&
                         node->src[1]->type == GGML_TYPE_F32) {
                         cur += sizeof(ggml_fp16_t)*ne00*ne01*ne02;
                         cur += sizeof(ggml_fp16_t)*ne10*ne11;
