@@ -354,7 +354,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_EXPERT_USED_COUNT,                 "%s.expert_used_count"                 },
     { LLM_KV_EXPERT_SHARED_COUNT,               "%s.expert_shared_count"               },
     { LLM_KV_EXPERT_WEIGHTS_SCALE,              "%s.expert_weights_scale"              },
-    { LLM_KV_POOLING_TYPE ,                     "%s.pooling_type"                      },
+    { LLM_KV_POOLING_TYPE,                      "%s.pooling_type"                      },
     { LLM_KV_LOGIT_SCALE,                       "%s.logit_scale"                       },
     { LLM_KV_DECODER_START_TOKEN_ID,            "%s.decoder_start_token_id"            },
     { LLM_KV_ATTN_LOGIT_SOFTCAPPING,            "%s.attn_logit_softcapping"            },
@@ -3532,6 +3532,10 @@ struct llama_model_loader {
                 case GGML_TYPE_Q4_0_4_4: ftype = LLAMA_FTYPE_MOSTLY_Q4_0_4_4; break;
                 case GGML_TYPE_Q4_0_4_8: ftype = LLAMA_FTYPE_MOSTLY_Q4_0_4_8; break;
                 case GGML_TYPE_Q4_0_8_8: ftype = LLAMA_FTYPE_MOSTLY_Q4_0_8_8; break;
+                case GGML_TYPE_E5M2:   ftype = LLAMA_FTYPE_MOSTLY_E5M2;   break;
+                case GGML_TYPE_E4M3:   ftype = LLAMA_FTYPE_MOSTLY_E4M3;   break;
+                case GGML_TYPE_E4M3_Q: ftype = LLAMA_FTYPE_MOSTLY_E4M3_Q; break;
+                case GGML_TYPE_E3M4_Q: ftype = LLAMA_FTYPE_MOSTLY_E3M4_Q; break;
                 default:
                     {
                         LLAMA_LOG_WARN("%s: unknown type %s\n", __func__, ggml_type_name(type_max));
@@ -4228,6 +4232,10 @@ static std::string llama_model_ftype_name(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_Q4_0_4_4: return "Q4_0_4_4";
         case LLAMA_FTYPE_MOSTLY_Q4_0_4_8: return "Q4_0_4_8";
         case LLAMA_FTYPE_MOSTLY_Q4_0_8_8: return "Q4_0_8_8";
+        case LLAMA_FTYPE_MOSTLY_E5M2:     return "E5M2";
+        case LLAMA_FTYPE_MOSTLY_E4M3:     return "E4M3";
+        case LLAMA_FTYPE_MOSTLY_E4M3_Q:   return "E4M3_Q";
+        case LLAMA_FTYPE_MOSTLY_E3M4_Q:   return "E3M4_Q";
 
         default: return "unknown, may not work";
     }
@@ -15611,6 +15619,12 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
                      ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {
                 new_type = GGML_TYPE_Q5_K;
             }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_E4M3_Q) {
+                new_type = GGML_TYPE_E4M3_Q;
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_E3M4_Q) {
+                new_type = GGML_TYPE_E3M4_Q;
+            }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -15632,6 +15646,9 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
             else if (new_type == GGML_TYPE_Q4_0_4_4 || new_type == GGML_TYPE_Q4_0_4_8 ||
                      new_type == GGML_TYPE_Q4_0_8_8) {
                 new_type = GGML_TYPE_Q4_0;
+            }
+            else if(ftype == LLAMA_FTYPE_MOSTLY_E4M3_Q || ftype == LLAMA_FTYPE_MOSTLY_E3M4_Q) {
+                new_type = tensor->type;
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -15820,7 +15837,7 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
         new_type == GGML_TYPE_Q5_K    || new_type == GGML_TYPE_Q6_K    || new_type == GGML_TYPE_IQ4_XS ||
         new_type == GGML_TYPE_IQ2_XS  || new_type == GGML_TYPE_IQ2_XXS || new_type == GGML_TYPE_IQ2_S  ||
         new_type == GGML_TYPE_IQ3_XXS || new_type == GGML_TYPE_IQ1_S   || new_type == GGML_TYPE_IQ3_S  ||
-        new_type == GGML_TYPE_IQ1_M) {
+        new_type == GGML_TYPE_IQ1_M   || new_type == GGML_TYPE_E4M3_Q  || new_type == GGML_TYPE_E3M4_Q) {
         int nx = tensor->ne[0];
         int ny = tensor->ne[1];
         if (nx % QK_K != 0) {
@@ -15845,6 +15862,8 @@ static ggml_type llama_tensor_get_type(quantize_state_internal & qs, ggml_type n
             case GGML_TYPE_Q4_K:   new_type = GGML_TYPE_Q5_0;   break;
             case GGML_TYPE_Q5_K:   new_type = GGML_TYPE_Q5_1;   break;
             case GGML_TYPE_Q6_K:   new_type = GGML_TYPE_Q8_0;   break;
+            case GGML_TYPE_E4M3_Q:
+            case GGML_TYPE_E3M4_Q: new_type = tensor->type;   break;
             default: throw std::runtime_error("\nUnsupported tensor size encountered\n");
         }
         LLAMA_LOG_WARN(" - using fallback quantization %s\n", ggml_type_name(new_type));
@@ -15948,6 +15967,10 @@ static void llama_model_quantize_internal(const std::string & fname_inp, const s
         case LLAMA_FTYPE_MOSTLY_Q4_0_4_4: default_type = GGML_TYPE_Q4_0_4_4; break;
         case LLAMA_FTYPE_MOSTLY_Q4_0_4_8: default_type = GGML_TYPE_Q4_0_4_8; break;
         case LLAMA_FTYPE_MOSTLY_Q4_0_8_8: default_type = GGML_TYPE_Q4_0_8_8; break;
+        case LLAMA_FTYPE_MOSTLY_E5M2:   default_type = GGML_TYPE_E5M2;   break;
+        case LLAMA_FTYPE_MOSTLY_E4M3:   default_type = GGML_TYPE_E4M3;   break;
+        case LLAMA_FTYPE_MOSTLY_E4M3_Q: default_type = GGML_TYPE_E4M3_Q; break;
+        case LLAMA_FTYPE_MOSTLY_E3M4_Q: default_type = GGML_TYPE_E3M4_Q; break;
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }

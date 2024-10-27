@@ -9,6 +9,15 @@ typedef uint32_t ggml_half2;
 #define GGML_COMMON_AGGR
 
 #define GGML_COMMON_DECL
+#elif defined(GGML_COMMON_DECL_CPP)
+#include <cstdint>
+
+typedef uint16_t ggml_half;
+typedef uint32_t ggml_half2;
+
+#define GGML_COMMON_AGGR data
+
+#define GGML_COMMON_DECL
 #elif defined(GGML_COMMON_DECL_METAL)
 #include <metal_stdlib>
 
@@ -411,6 +420,25 @@ typedef struct {
 } block_iq4_xs;
 static_assert(sizeof(block_iq4_xs) == sizeof(ggml_half) + sizeof(uint16_t) + QK_K/64 + QK_K/2, "wrong iq4_xs block size/padding");
 
+// fp8 support
+// - fp8 simple type
+typedef struct { uint8_t bits; } ggml_e5m2_t;
+typedef struct { uint8_t bits; } ggml_e4m3_t;
+typedef struct { uint8_t bits; } ggml_e3m4_t;
+
+// - fp8 with bloc delta => 8.125 bpw
+typedef struct {
+    float d;  // delta
+    uint8_t qs[QK_K];
+} block_e4m3_q;
+static_assert(sizeof(block_e4m3_q) == sizeof(float) + QK_K, "wrong block_e4m3_q block size/padding");
+
+typedef struct {
+    float d;  // delta
+    uint8_t qs[QK_K];
+} block_e3m4_q;
+static_assert(sizeof(block_e3m4_q) == sizeof(float) + QK_K, "wrong block_e3m4_q block size/padding");
+
 #endif // GGML_COMMON_DECL
 #endif // GGML_COMMON_DECL
 
@@ -420,6 +448,13 @@ static_assert(sizeof(block_iq4_xs) == sizeof(ggml_half) + sizeof(uint16_t) + QK_
 
 #if defined(GGML_COMMON_IMPL_C)
 #include <stdint.h>
+
+#define GGML_TABLE_BEGIN(type, name, size) static const type name[size] = {
+#define GGML_TABLE_END() };
+
+#define GGML_COMMON_IMPL
+#elif defined(GGML_COMMON_IMPL_CPP)
+#include <cstdint>
 
 #define GGML_TABLE_BEGIN(type, name, size) static const type name[size] = {
 #define GGML_TABLE_END() };

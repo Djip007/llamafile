@@ -216,10 +216,10 @@
 #    define GGML_ATTRIBUTE_FORMAT(...) __attribute__((format(printf, __VA_ARGS__)))
 #endif
 
-#include <stdio.h>
-#include <stdint.h>
-#include <stddef.h>
 #include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
 #include "llamafile.h"
 
 #define GGML_FILE_MAGIC   0x67676d6c // "ggml"
@@ -232,10 +232,10 @@
 #define GGML_MAX_PARAMS         2048
 #define GGML_MAX_CONTEXTS       64
 #define GGML_MAX_SRC            10
+#define GGML_MAX_OP_PARAMS      64
 #ifndef GGML_MAX_NAME
 #define GGML_MAX_NAME           128 // [jart] for stable diffusion
 #endif
-#define GGML_MAX_OP_PARAMS      64
 #define GGML_DEFAULT_N_THREADS  4
 #define GGML_DEFAULT_GRAPH_SIZE 2048
 #if UINTPTR_MAX == 0xFFFFFFFF
@@ -396,6 +396,12 @@ extern "C" {
         GGML_TYPE_Q4_0_4_4 = 31,
         GGML_TYPE_Q4_0_4_8 = 32,
         GGML_TYPE_Q4_0_8_8 = 33,
+        // GGML_TYPE_TQ1_0   = 34,
+        // GGML_TYPE_TQ2_0   = 35,
+        GGML_TYPE_E5M2    = 34,
+        GGML_TYPE_E4M3    = 35,
+        GGML_TYPE_E4M3_Q  = 36,
+        GGML_TYPE_E3M4_Q  = 37,
         GGML_TYPE_COUNT,
     };
 
@@ -440,6 +446,10 @@ extern "C" {
         GGML_FTYPE_MOSTLY_Q4_0_4_4 = 25, // except 1d tensors
         GGML_FTYPE_MOSTLY_Q4_0_4_8 = 26, // except 1d tensors
         GGML_FTYPE_MOSTLY_Q4_0_8_8 = 27, // except 1d tensors
+        GGML_FTYPE_MOSTLY_E5M2     = 28, // except 1d tensors
+        GGML_FTYPE_MOSTLY_E4M3     = 29, // except 1d tensors
+        GGML_FTYPE_MOSTLY_E4M3_Q   = 30, // except 1d tensors
+        GGML_FTYPE_MOSTLY_E3M4_Q   = 31, // except 1d tensors
     };
 
     // available tensor operations:

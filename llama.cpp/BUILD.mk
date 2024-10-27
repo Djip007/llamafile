@@ -49,6 +49,8 @@ o/$(MODE)/llama.cpp/ggml-vector-arm80.o \
 o/$(MODE)/llama.cpp/ggml-vector-arm82.o: \
 		private CCFLAGS += -O3 -mgcc
 
+o/$(MODE)/llama.cpp/ggml-fp8.o: private CCFLAGS += -O3 -mgcc -fopenmp-simd
+
 o/$(MODE)/llama.cpp/ggml-alloc.o			\
 o/$(MODE)/llama.cpp/ggml-backend.o			\
 o/$(MODE)/llama.cpp/grammar-parser.o			\
